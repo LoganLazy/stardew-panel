@@ -23,7 +23,9 @@ func Setup(cfg *config.Config) *gin.Engine {
 	{
 		// 安装检查
 		api.GET("/install/check", handler.CheckInstallation)
-		api.POST("/install", handler.InstallServer)
+		api.POST("/install/upload", handler.UploadGameFiles)
+		api.POST("/install/verify", handler.VerifyGamePath)
+		api.POST("/install/steamcmd", handler.InstallViaSteamCMD)
 		api.GET("/install/status", handler.GetInstallStatus)
 
 		// 服务器管理
