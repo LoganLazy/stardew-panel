@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  stardew-panel:
+    build:
+      context: ../server
+      dockerfile: ../docker/Dockerfile.panel
+    container_name: stardew-panel
+    ports:
+      - "8080:8080"
+    volumes:
+      - panel-data:/root/data
+      - game-data:/root/game
+    restart: unless-stopped
+    networks:
+      - stardew-net
+
+  # 星露谷服务器容器（待实现）
+  # stardew-server:
+  #   image: placeholder/stardew-server:latest
+  #   container_name: stardew-server
+  #   ports:
+  #     - "24642:24642"
+  #   volumes:
+  #     - game-data:/game
+  #   restart: unless-stopped
+  #   networks:
+  #     - stardew-net
+
+volumes:
+  panel-data:
+  game-data:
+
+networks:
+  stardew-net:
+    driver: bridge

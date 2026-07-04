@@ -1,0 +1,90 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-weight: 300;
+  color: #1F2421;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  outline: none;
+}
+
+.btn {
+  padding: 0.75rem 1.5rem;
+  border-radius: 999px;
+  font-weight: 400;
+  font-size: 0.95rem;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn-primary {
+  background: #C4612F;
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #A94E22;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(196, 97, 47, 0.2);
+}
+
+.btn-secondary {
+  background: #FBF9F5;
+  color: #1F2421;
+  border: 1px solid #E7E1D7;
+}
+
+.btn-secondary:hover {
+  background: #F7F4EF;
+  transform: translateY(-1px);
+}
+
+.card {
+  background: #FFFFFF;
+  border: 1px solid #E7E1D7;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 1px 3px rgba(31, 36, 33, 0.04);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 400;
+}
+
+.badge-success {
+  background: #F2E3D6;
+  color: #C4612F;
+}
+
+.badge-error {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.badge-warning {
+  background: #fffbeb;
+  color: #92400e;
+}
