@@ -10,6 +10,7 @@
         <router-link to="/players">玩家</router-link>
         <router-link to="/saves">存档</router-link>
         <router-link to="/logs">日志</router-link>
+        <router-link to="/setup">安装</router-link>
       </div>
     </nav>
     <main class="main">

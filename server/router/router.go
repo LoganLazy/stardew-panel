@@ -21,6 +21,11 @@ func Setup(cfg *config.Config) *gin.Engine {
 	// API 路由组
 	api := r.Group("/api/v1")
 	{
+		// 安装检查
+		api.GET("/install/check", handler.CheckInstallation)
+		api.POST("/install", handler.InstallServer)
+		api.GET("/install/status", handler.GetInstallStatus)
+
 		// 服务器管理
 		server := api.Group("/server")
 		{
