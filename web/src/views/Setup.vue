@@ -91,22 +91,38 @@
         </div>
 
         <div class="form-group">
-          <label>
-            <input type="checkbox" v-model="installSMAPI">
-            下载后自动安装 SMAPI
-          </label>
+          <label>Steam 用户名 *</label>
+          <input v-model="steamUsername" placeholder="your_steam_username" />
+          <small>需要拥有星露谷物语的 Steam 账号</small>
         </div>
 
-        <div class="alert">
-          <strong>⚠️ 注意：</strong>
+        <div class="form-group">
+          <label>Steam 密码 *</label>
+          <input type="password" v-model="steamPassword" placeholder="••••••••" />
+          <small>密码不会被保存，仅用于此次下载</small>
+        </div>
+
+        <div class="form-group">
+          <label>
+            <input type="checkbox" v-model="installSMAPI">
+            下载后安装 SMAPI（需手动安装）
+          </label>
+          <small>⚠️ 自动安装功能暂未实现，需要手动安装 SMAPI</small>
+        </div>
+
+        <div class="alert alert-warning">
+          <strong>⚠️ 重要提示：</strong>
           <ul>
-            <li>使用 SteamCMD 从官方服务器下载（免费）</li>
+            <li>需要 Steam 账号并且已购买星露谷物语</li>
+            <li>密码仅在服务器本地使用，不会被保存或上传</li>
+            <li>如果启用了 Steam Guard，需要先在服务器上手动登录 SteamCMD</li>
             <li>下载速度取决于网络环境，国内可能较慢</li>
             <li>建议使用代理或 VPN 以获得更好的下载速度</li>
           </ul>
         </div>
 
-        <button class="btn btn-primary" @click="startSteamCMD" :disabled="!installPath || installing">
+        <button class="btn btn-primary" @click="startSteamCMD"
+                :disabled="!installPath || !steamUsername || !steamPassword || installing">
           {{ installing ? '下载中...' : '开始下载' }}
         </button>
       </div>
@@ -167,13 +183,15 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import axios from 'axios'
+import { ref, onMounted } from 'vue'
+import * as api from '@/api/api'
 
 const serverInstalled = ref(false)
 const setupMethod = ref('upload')
 const gamePath = ref('')
 const installPath = ref('/opt/stardew-server')
+const steamUsername = ref('')
+const steamPassword = ref('')
 const installSMAPI = ref(true)
 const detectSMAPI = ref(true)
 const installing = ref(false)
@@ -184,6 +202,23 @@ const serverInfo = ref({
   path: '/opt/stardew-server',
   type: 'SMAPI',
   version: '1.6.9'
+})
+
+// 检查是否已安装
+onMounted(async () => {
+  try {
+    const { data } = await api.checkInstallation()
+    if (data.installed && data.installation) {
+      serverInstalled.value = true
+      serverInfo.value = {
+        path: data.installation.game_path,
+        type: data.installation.has_smapi ? 'SMAPI' : 'Vanilla',
+        version: data.installation.version
+      }
+    }
+  } catch (error) {
+    console.error('检查安装状态失败:', error)
+  }
 })
 
 const handleFileSelect = (event) => {
@@ -212,33 +247,31 @@ const startUpload = async () => {
     formData.append('file', uploadFile.value)
     formData.append('installSMAPI', installSMAPI.value)
 
-    // TODO: 实现上传 API
-    // await axios.post('/api/v1/install/upload', formData, {
-    //   onUploadProgress: (progressEvent) => {
-    //     const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total)
-    //     installLog.value.push(`上传进度: ${percentCompleted}%`)
-    //   }
-    // })
+    const { data } = await api.uploadGameFiles(formData, (progressEvent) => {
+      const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+      installLog.value.push(`上传进度: ${percentCompleted}%`)
+    })
 
-    // 模拟上传过程
-    await new Promise(resolve => setTimeout(resolve, 2000))
     installLog.value.push('📦 解压游戏文件...')
-
-    await new Promise(resolve => setTimeout(resolve, 1500))
     installLog.value.push('🔧 配置服务器...')
 
     if (installSMAPI.value) {
-      await new Promise(resolve => setTimeout(resolve, 1500))
       installLog.value.push('🔌 安装 SMAPI...')
     }
 
-    await new Promise(resolve => setTimeout(resolve, 1000))
     installLog.value.push('✅ 配置完成！')
 
-    serverInstalled.value = true
+    if (data.success && data.installation) {
+      serverInstalled.value = true
+      serverInfo.value = {
+        path: data.installation.game_path,
+        type: data.installation.has_smapi ? 'SMAPI' : 'Vanilla',
+        version: data.installation.version
+      }
+    }
   } catch (error) {
     console.error('Upload failed:', error)
-    installLog.value.push('❌ 上传失败：' + error.message)
+    installLog.value.push('❌ 上传失败：' + (error.response?.data?.error || error.message))
   } finally {
     installing.value = false
   }
@@ -251,74 +284,114 @@ const verifyPath = async () => {
   try {
     installLog.value.push('🔍 验证游戏路径...')
 
-    // TODO: 调用后端 API
-    // const { data } = await axios.post('/api/v1/install/verify', {
-    //   path: gamePath.value,
-    //   detectSMAPI: detectSMAPI.value
-    // })
+    const { data } = await api.verifyGamePath(gamePath.value, detectSMAPI.value)
 
-    // 模拟验证过程
-    await new Promise(resolve => setTimeout(resolve, 1000))
     installLog.value.push('✅ 检测到 Stardew Valley 可执行文件')
 
-    await new Promise(resolve => setTimeout(resolve, 500))
-    if (detectSMAPI.value) {
+    if (data.installation.has_smapi) {
       installLog.value.push('✅ 检测到 SMAPI 已安装')
     }
 
-    await new Promise(resolve => setTimeout(resolve, 500))
     installLog.value.push('🔧 保存配置...')
-
-    await new Promise(resolve => setTimeout(resolve, 500))
     installLog.value.push('✅ 配置完成！')
 
-    serverInstalled.value = true
+    if (data.success && data.installation) {
+      serverInstalled.value = true
+      serverInfo.value = {
+        path: data.installation.game_path,
+        type: data.installation.has_smapi ? 'SMAPI' : 'Vanilla',
+        version: data.installation.version
+      }
+    }
   } catch (error) {
     console.error('Verification failed:', error)
-    installLog.value.push('❌ 验证失败：' + error.message)
+    installLog.value.push('❌ 验证失败：' + (error.response?.data?.error || error.message))
   } finally {
     installing.value = false
   }
 }
 
 const startSteamCMD = async () => {
+  if (!steamUsername.value || !steamPassword.value) {
+    alert('请输入 Steam 账号和密码')
+    return
+  }
+
   installing.value = true
   installLog.value = []
 
   try {
     installLog.value.push('🚀 开始下载...')
-    installLog.value.push('📥 检查 SteamCMD...')
+    installLog.value.push('📥 连接 Steam 服务器...')
+    installLog.value.push('🔐 验证账号信息...')
 
-    // TODO: 调用后端 API
-    // const { data } = await axios.post('/api/v1/install/steamcmd', {
-    //   path: installPath.value,
-    //   installSMAPI: installSMAPI.value
-    // })
+    const { data } = await api.installViaSteamCMD(
+      installPath.value,
+      steamUsername.value,
+      steamPassword.value,
+      installSMAPI.value
+    )
 
-    // 模拟下载过程
-    await new Promise(resolve => setTimeout(resolve, 2000))
     installLog.value.push('📥 使用 SteamCMD 下载游戏...')
     installLog.value.push('⏳ 这可能需要 5-15 分钟，请耐心等待...')
 
-    await new Promise(resolve => setTimeout(resolve, 3000))
-    installLog.value.push('📦 下载完成，验证文件完整性...')
+    // 轮询安装状态
+    const pollInterval = setInterval(async () => {
+      try {
+        const statusData = await api.getInstallStatus()
+        if (statusData.data.status === 'completed') {
+          clearInterval(pollInterval)
+          installLog.value.push('✅ 安装完成！')
 
-    await new Promise(resolve => setTimeout(resolve, 1500))
-    installLog.value.push('🔧 配置服务器...')
+          // 清空密码
+          steamPassword.value = ''
 
-    if (installSMAPI.value) {
-      await new Promise(resolve => setTimeout(resolve, 2000))
-      installLog.value.push('🔌 下载并安装 SMAPI...')
-    }
+          if (data.success && data.installation) {
+            serverInstalled.value = true
+            serverInfo.value = {
+              path: data.installation.game_path,
+              type: data.installation.has_smapi ? 'SMAPI' : 'Vanilla',
+              version: data.installation.version
+            }
+          }
+          installing.value = false
+        }
+      } catch (error) {
+        clearInterval(pollInterval)
+        console.error('Status check failed:', error)
+      }
+    }, 2000)
 
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    installLog.value.push('✅ 安装完成！')
+    // 超时处理
+    setTimeout(() => {
+      clearInterval(pollInterval)
+      if (installing.value) {
+        installLog.value.push('⚠️ 安装超时，请检查日志')
+        installing.value = false
+      }
+    }, 900000) // 15分钟超时
 
-    serverInstalled.value = true
   } catch (error) {
     console.error('Installation failed:', error)
-    installLog.value.push('❌ 安装失败：' + error.message)
-  } finally {
+    const errorMsg = error.response?.data?.error || error.message
+    installLog.value.push('❌ 安装失败：' + errorMsg)
+
+    // 清空密码
+    steamPassword.value = ''
+
+    // 友好的错误提示
+    if (errorMsg.includes('密码错误')) {
+      alert('❌ Steam 密码错误，请检查后重试')
+    } else if (errorMsg.includes('用户名不存在')) {
+      alert('❌ Steam 用户名不存在')
+    } else if (errorMsg.includes('Steam Guard')) {
+      alert('❌ 需要 Steam Guard 验证码\n\n请先在服务器上手动登录 SteamCMD，完成验证后再使用面板下载')
+    } else if (errorMsg.includes('未购买')) {
+      alert('❌ 该账号未购买星露谷物语\n\n需要拥有游戏才能下载服务端')
+    } else {
+      alert('❌ 安装失败：' + errorMsg)
+    }
+
     installing.value = false
   }
 }
@@ -440,6 +513,11 @@ const reinstall = () => {
   border-radius: 8px;
   padding: 1rem;
   margin: 1rem 0;
+}
+
+.alert-warning {
+  background: #FFF3CD;
+  border: 1px solid #FFE69C;
 }
 
 .alert strong {

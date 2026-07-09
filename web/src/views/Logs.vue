@@ -20,14 +20,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import axios from 'axios'
+import { ref, onMounted, onUnmounted } from 'vue'
+import * as api from '@/api/api'
 
 const logs = ref([])
+let refreshInterval = null
 
 const loadLogs = async () => {
   try {
-    const { data } = await axios.get('/api/v1/logs')
+    const { data } = await api.getLogs(200)
     logs.value = data.logs || []
   } catch (error) {
     console.error('Failed to load logs:', error)
@@ -35,10 +36,22 @@ const loadLogs = async () => {
 }
 
 const clearLogs = () => {
-  logs.value = []
+  if (confirm('确定要清空日志显示吗？（不会删除服务器日志文件）')) {
+    logs.value = []
+  }
 }
 
-onMounted(loadLogs)
+onMounted(() => {
+  loadLogs()
+  // 每3秒自动刷新日志
+  refreshInterval = setInterval(loadLogs, 3000)
+})
+
+onUnmounted(() => {
+  if (refreshInterval) {
+    clearInterval(refreshInterval)
+  }
+})
 </script>
 
 <style scoped>

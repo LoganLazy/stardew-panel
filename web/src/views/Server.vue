@@ -64,10 +64,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { useServerStore } from '@/stores/server'
-
-const serverStore = useServerStore()
+import { ref, onMounted, onUnmounted } from 'vue'
+import * as api from '@/api/api'
 
 const serverStatus = ref('stopped')
 const stats = ref({
@@ -84,23 +82,81 @@ const serverInfo = ref({
   maxPlayers: 8
 })
 
+let refreshInterval = null
+
+const formatUptime = (seconds) => {
+  if (seconds < 60) return `${seconds}秒`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}分钟`
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  return `${hours}小时${minutes}分钟`
+}
+
+const fetchStatus = async () => {
+  try {
+    const { data } = await api.getServerStatus()
+    serverStatus.value = data.status
+    stats.value.onlinePlayers = data.online_players || 0
+    stats.value.version = data.version || '1.6.9'
+    stats.value.uptime = formatUptime(data.uptime || 0)
+  } catch (error) {
+    console.error('获取服务器状态失败:', error)
+  }
+}
+
 const startServer = async () => {
-  await serverStore.startServer()
-  serverStatus.value = 'running'
+  try {
+    await api.startServer()
+    serverStatus.value = 'starting'
+    await fetchStatus()
+  } catch (error) {
+    alert('启动服务器失败: ' + (error.response?.data?.error || error.message))
+  }
 }
 
 const stopServer = async () => {
-  await serverStore.stopServer()
-  serverStatus.value = 'stopped'
+  if (!confirm('确定要停止服务器吗？在线玩家将被断开连接。')) return
+
+  try {
+    await api.stopServer()
+    serverStatus.value = 'stopping'
+    await fetchStatus()
+  } catch (error) {
+    alert('停止服务器失败: ' + (error.response?.data?.error || error.message))
+  }
 }
 
 const restartServer = async () => {
-  await serverStore.restartServer()
+  if (!confirm('确定要重启服务器吗？在线玩家将被断开连接。')) return
+
+  try {
+    await api.restartServer()
+    serverStatus.value = 'restarting'
+    await fetchStatus()
+  } catch (error) {
+    alert('重启服务器失败: ' + (error.response?.data?.error || error.message))
+  }
 }
 
 onMounted(async () => {
-  const status = await serverStore.getStatus()
-  serverStatus.value = status.status
+  await fetchStatus()
+
+  // 每5秒刷新一次状态
+  refreshInterval = setInterval(fetchStatus, 5000)
+
+  // 获取MOD数量
+  try {
+    const { data } = await api.listMods()
+    stats.value.modsCount = data.mods?.length || 0
+  } catch (error) {
+    console.error('获取MOD列表失败:', error)
+  }
+})
+
+onUnmounted(() => {
+  if (refreshInterval) {
+    clearInterval(refreshInterval)
+  }
 })
 </script>
 

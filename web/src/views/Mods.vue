@@ -48,36 +48,43 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import axios from 'axios'
+import * as api from '@/api/api'
 
 const mods = ref([])
 const showUpload = ref(false)
 
 const loadMods = async () => {
   try {
-    const { data } = await axios.get('/api/v1/mods')
+    const { data } = await api.listMods()
     mods.value = data.mods || []
   } catch (error) {
     console.error('Failed to load mods:', error)
+    alert('加载MOD列表失败: ' + (error.response?.data?.error || error.message))
   }
 }
 
 const toggleMod = async (id) => {
+  // 找到当前MOD的状态
+  const mod = mods.value.find(m => m.id === id)
+  if (!mod) return
+
   try {
-    await axios.put(`/api/v1/mods/${id}/toggle`)
+    await api.toggleMod(id, !mod.enabled)
     await loadMods()
   } catch (error) {
     console.error('Failed to toggle mod:', error)
+    alert('切换MOD状态失败: ' + (error.response?.data?.error || error.message))
   }
 }
 
 const deleteMod = async (id) => {
   if (!confirm('确定要删除这个 MOD 吗？')) return
   try {
-    await axios.delete(`/api/v1/mods/${id}`)
+    await api.deleteMod(id)
     await loadMods()
   } catch (error) {
     console.error('Failed to delete mod:', error)
+    alert('删除MOD失败: ' + (error.response?.data?.error || error.message))
   }
 }
 
@@ -89,11 +96,13 @@ const uploadMod = async (event) => {
   formData.append('file', file)
 
   try {
-    await axios.post('/api/v1/mods/upload', formData)
+    await api.uploadMod(formData)
     showUpload.value = false
     await loadMods()
+    alert('MOD上传成功！')
   } catch (error) {
     console.error('Failed to upload mod:', error)
+    alert('上传MOD失败: ' + (error.response?.data?.error || error.message))
   }
 }
 

@@ -1,6 +1,7 @@
 <template>
   <div class="app">
-    <nav class="nav">
+    <!-- 只在非登录页显示导航 -->
+    <nav class="nav" v-if="$route.path !== '/login'">
       <div class="nav-brand">
         <h1>🌾 StardewPanel</h1>
       </div>
@@ -11,9 +12,10 @@
         <router-link to="/saves">存档</router-link>
         <router-link to="/logs">日志</router-link>
         <router-link to="/setup">安装</router-link>
+        <router-link to="/settings">⚙️ 设置</router-link>
       </div>
     </nav>
-    <main class="main">
+    <main class="main" :class="{ 'no-nav': $route.path === '/login' }">
       <router-view />
     </main>
   </div>
@@ -71,5 +73,10 @@
   max-width: 1280px;
   margin: 0 auto;
   padding: 2rem;
+}
+
+.main.no-nav {
+  max-width: none;
+  padding: 0;
 }
 </style>

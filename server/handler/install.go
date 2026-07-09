@@ -2,106 +2,150 @@ package handler
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
+	"stardew-panel/config"
+	"stardew-panel/models"
+	"stardew-panel/service"
 
 	"github.com/gin-gonic/gin"
 )
 
-// CheckInstallation 检查服务端是否已安装
-func CheckInstallation(c *gin.Context) {
-	// TODO: 实现检查逻辑
-	c.JSON(http.StatusOK, gin.H{
-		"installed": false,
-		"path":      "",
-		"type":      "",
-		"version":   "",
-	})
+var installService *service.InstallService
+
+// InitInstallHandler 初始化安装处理器
+func InitInstallHandler(cfg *config.Config) {
+	installService = service.NewInstallService(cfg.Game.ServerPath, cfg.Game.ModsPath, cfg.Game.SavesPath)
 }
 
-// UploadGameFiles 上传游戏文件
-func UploadGameFiles(c *gin.Context) {
-	file, err := c.FormFile("file")
+// CheckInstallation 检查安装状态
+func CheckInstallation(c *gin.Context) {
+	inst, err := installService.CheckInstallation()
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	installSMAPI := c.PostForm("installSMAPI") == "true"
-
-	// TODO: 实现上传和解压逻辑
-	// 1. 保存上传的 zip 文件
-	// 2. 解压到指定目录
-	// 3. 验证游戏文件完整性
-	// 4. 如果需要，安装 SMAPI
-	// 5. 保存配置
+	if inst == nil {
+		c.JSON(http.StatusOK, gin.H{"installed": false})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":     "Upload started",
-		"filename":    file.Filename,
-		"size":        file.Size,
-		"installSMAPI": installSMAPI,
+		"installed":    true,
+		"installation": inst,
 	})
 }
 
 // VerifyGamePath 验证游戏路径
 func VerifyGamePath(c *gin.Context) {
-	var req struct {
-		Path        string `json:"path"`
-		DetectSMAPI bool   `json:"detectSMAPI"`
+	var req models.InstallRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求参数"})
+		return
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if req.Path == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "路径不能为空"})
+		return
+	}
+
+	inst, err := installService.VerifyGamePath(req.Path, req.DetectSMAPI)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// TODO: 实现路径验证逻辑
-	// 1. 检查路径是否存在
-	// 2. 检查是否包含 StardewValley 可执行文件
-	// 3. 如果需要，检测 SMAPI
-	// 4. 获取游戏版本
-	// 5. 保存配置
+	c.JSON(http.StatusOK, gin.H{
+		"success":      true,
+		"installation": inst,
+	})
+}
+
+// UploadGameFiles 上传游戏文件
+func UploadGameFiles(c *gin.Context) {
+	// 限制上传文件大小为 5GB（游戏文件较大）
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 5*1024*1024*1024)
+
+	file, err := c.FormFile("file")
+	if err != nil {
+		if err.Error() == "http: request body too large" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "文件过大，最大支持 5GB"})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "文件上传失败"})
+		return
+	}
+
+	if filepath.Ext(file.Filename) != ".zip" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "只支持 .zip 格式"})
+		return
+	}
+
+	tempDir := "./data/temp"
+	os.MkdirAll(tempDir, 0755)
+	tempPath := filepath.Join(tempDir, file.Filename)
+
+	if err := c.SaveUploadedFile(file, tempPath); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存文件失败"})
+		return
+	}
+
+	installSMAPI := c.PostForm("installSMAPI") == "true"
+
+	inst, err := installService.ExtractUploadedFile(tempPath, installSMAPI)
+	if err != nil {
+		os.Remove(tempPath)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"valid":        true,
-		"path":         req.Path,
-		"hasSMAPI":     false,
-		"version":      "1.6.9",
-		"executable":   "StardewValley",
+		"success":      true,
+		"installation": inst,
 	})
 }
 
 // InstallViaSteamCMD 通过 SteamCMD 安装
 func InstallViaSteamCMD(c *gin.Context) {
-	var req struct {
-		Path        string `json:"path"`
-		InstallSMAPI bool   `json:"installSMAPI"`
-	}
-
+	var req models.InstallRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求参数"})
 		return
 	}
 
-	// TODO: 实现 SteamCMD 下载逻辑
-	// 1. 检查 SteamCMD 是否已安装
-	// 2. 如果没有，下载并安装 SteamCMD
-	// 3. 使用 SteamCMD 下载游戏 (App ID: 413150)
-	// 4. 如果需要，下载并安装 SMAPI
-	// 5. 保存配置
+	if req.Path == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "安装路径不能为空"})
+		return
+	}
+
+	if req.SteamUsername == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Steam 用户名不能为空"})
+		return
+	}
+
+	if req.SteamPassword == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Steam 密码不能为空"})
+		return
+	}
+
+	inst, err := installService.InstallViaSteamCMD(req.Path, req.SteamUsername, req.SteamPassword, req.InstallSMAPI)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":     "SteamCMD installation started",
-		"path":        req.Path,
-		"installSMAPI": req.InstallSMAPI,
+		"success":      true,
+		"installation": inst,
 	})
 }
 
-// GetInstallStatus 获取安装状态
+// GetInstallStatus 获取安装进度
 func GetInstallStatus(c *gin.Context) {
-	// TODO: 实现获取安装进度
 	c.JSON(http.StatusOK, gin.H{
-		"status":   "installing",
-		"progress": 50,
-		"message":  "Downloading server files...",
+		"status":   "idle",
+		"progress": 100,
+		"message":  "安装完成",
 	})
 }

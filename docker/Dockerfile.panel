@@ -1,25 +1,46 @@
-FROM --platform=$BUILDPLATFORM golang:1.22-alpine AS builder
+# 前端构建阶段
+FROM node:18-alpine AS frontend-builder
 
-ARG TARGETPLATFORM
-ARG BUILDPLATFORM
-ARG TARGETOS
-ARG TARGETARCH
+WORKDIR /app/web
+
+COPY web/package.json web/package-lock.json* ./
+RUN npm install
+
+COPY web/ ./
+RUN npm run build
+
+# 后端构建阶段
+FROM golang:1.22-alpine AS backend-builder
 
 WORKDIR /app
 
-COPY go.mod ./
+# 安装构建依赖
+RUN apk add --no-cache gcc musl-dev sqlite-dev
+
+COPY server/go.mod server/go.sum* ./
 RUN go mod download
 
-COPY . .
-RUN CGO_ENABLED=1 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o stardew-panel main.go
+COPY server/ ./
+RUN CGO_ENABLED=1 go build -o stardew-panel main.go
 
+# 最终镜像
 FROM alpine:latest
 
 RUN apk --no-cache add ca-certificates sqlite
 
 WORKDIR /root/
 
-COPY --from=builder /app/stardew-panel .
+# 复制后端可执行文件
+COPY --from=backend-builder /app/stardew-panel .
+
+# 复制前端构建产物
+COPY --from=frontend-builder /app/web/dist ./web/dist
+
+# 复制配置文件
+COPY config.yaml .
+
+# 创建数据目录
+RUN mkdir -p data game/mods game/saves
 
 EXPOSE 8080
 

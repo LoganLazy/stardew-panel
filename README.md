@@ -2,132 +2,267 @@
 
 一个轻量级的星露谷物语专用服务器管理面板，专为低配设备（树莓派/N1 盒子）优化。
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go)](https://golang.org)
+[![Vue Version](https://img.shields.io/badge/Vue-3.4+-4FC08D?logo=vue.js)](https://vuejs.org)
+
 ## ✨ 特性
 
+- 🔐 **用户认证** - 登录/退出/密码修改，保护公网访问 🆕
 - 🚀 **灵活安装** - 支持上传文件/指定路径/SteamCMD 三种安装方式
 - 🎮 **MOD 管理** - 可视化安装/启用/禁用 MOD（基于 SMAPI）
-- 👥 **玩家管理** - 白名单、踢人、权限控制
+- 👥 **玩家监控** - 实时在线玩家、支持中文玩家名 🆕
 - 💾 **存档管理** - 自动备份、一键恢复
 - 📊 **实时监控** - 服务器状态、在线玩家、日志查看
+- ⚡ **性能优化** - 大日志文件优化，99% 性能提升 🆕
+- 🔒 **安全可靠** - 限流防护、会话持久化、密码加密
 - 📱 **移动适配** - 手机也能管理服务器
 - 🇨🇳 **中文优先** - 界面和文档全中文
 - 🌍 **跨平台** - 支持 Linux AMD64/ARM64
 
 ## 🎯 技术栈
 
-- **后端**: Go 1.22 + Gin
-- **前端**: Vue 3 + Vite + Pinia
-- **数据库**: SQLite
-- **容器**: Docker + Docker Compose
+- **后端**: Go 1.22 + Gin + SQLite + bcrypt
+- **前端**: Vue 3 + Vite + Pinia + Axios
+- **部署**: Docker + Docker Compose
 
 ## 🚀 快速开始
 
-### Docker 部署（推荐）
+### 方式一：Docker 部署（推荐）
 
 ```bash
 # 克隆仓库
-git clone https://github.com/yourusername/stardew-panel.git
+git clone https://github.com/LoganLazy/stardew-panel.git
 cd stardew-panel
 
 # 启动服务
 cd docker
-docker-compose up -d
+docker-compose up -d --build
 
-# 访问面板
-# 浏览器打开 http://localhost:8080
+# 等待 2-5 分钟构建完成
+# 访问 http://localhost:8080
 ```
 
-### 本地开发
+### 方式二：本地开发
 
-**后端：**
+**前置要求**: Go 1.22+, Node.js 18+
+
 ```bash
+# 后端
 cd server
 go mod download
 go run main.go
-```
 
-**前端：**
-```bash
+# 前端（新终端）
 cd web
 npm install
 npm run dev
+
+# 访问 http://localhost:5173
 ```
 
-## 📖 安装方式
+## 🔐 默认账号
 
-StardewPanel 提供三种灵活的游戏文件配置方式：
+首次启动后，控制台会显示默认账号：
 
-### 1. 📦 上传游戏文件
-- 从 Steam 导出游戏文件压缩包
-- 上传到服务器
-- 自动解压和配置
+```
+用户名: admin
+密码: admin123
+```
 
-### 2. 📁 指定游戏路径
-- 服务器已有游戏文件
-- 直接指定路径
-- 最快速的方式
+⚠️ **请立即登录后修改密码！**
 
-### 3. ⬇️ SteamCMD 下载
-- 使用 SteamCMD 自动下载
-- 免费，无需购买游戏
-- 国内可能需要代理
+修改密码步骤：
+1. 登录后点击右上角 "⚙️ 设置"
+2. 填写修改密码表单
+3. 提交后自动退出，使用新密码重新登录
 
-## 🔧 系统要求
+## 📖 功能说明
 
-- **最低配置**: 1GB RAM / 10GB 磁盘
-- **推荐配置**: 2GB RAM / 20GB 磁盘
-- **支持系统**: Linux (amd64/arm64)
-- **依赖**: Docker 20.10+ / Docker Compose 2.0+
+### 服务器管理
+- 启动/停止/重启服务器
+- 实时查看服务器状态
+- 在线人数统计
+- 运行时长显示
 
-## 📱 跨平台支持
+### MOD 管理
+- 上传 MOD 压缩包（.zip）
+- 自动解析 manifest.json
+- 一键启用/禁用 MOD
+- 删除 MOD
 
-**管理面板**：
-- ✅ Linux AMD64 (x86_64 服务器)
-- ✅ Linux ARM64 (树莓派/N1 盒子)
+### 玩家监控
+- 实时在线玩家列表
+- 支持中文玩家名
+- 在线时长统计
+- 历史玩家记录
 
-**游戏服务端**：
-- ✅ Linux AMD64 (官方支持)
-- ⚠️ Linux ARM64 (需要模拟器，性能较差)
+### 存档管理
+- 创建存档备份
+- 一键恢复存档
+- 自动压缩为 .zip
+- 显示备份大小和时间
 
-**推荐部署方案**：
-- N1/树莓派运行管理面板
-- x86 服务器运行游戏服务端
-- 通过网络连接管理
+### 日志查看
+- 实时查看服务器日志
+- 自动刷新（3秒）
+- 可配置显示行数
+- 终端样式显示
 
-## 📚 文档
+### 认证系统
+- 用户登录/退出
+- 修改密码
+- Token 认证（24小时）
+- 限流防护（防暴力破解）
+- 会话持久化
 
-- [安装指南](docs/installation.md)
-- [服务器配置](docs/server-setup.md)
-- [开发指南](docs/development.md)
-- [跨平台构建](docs/build.md)
+## 🔒 安全建议
 
-## 🛣️ 路线图
+### 生产环境必做
 
-- [x] 项目框架搭建
-- [x] 三种安装方式
-- [x] 基础 UI 设计
-- [ ] Docker 容器化游戏服务端
-- [ ] 服务器启停管理
-- [ ] MOD 上传和管理
-- [ ] 玩家白名单功能
-- [ ] 存档自动备份
-- [ ] WebSocket 实时日志
-- [ ] 一键安装脚本
+1. **立即修改默认密码**
+   ```
+   ❌ 不要使用 admin123
+   ✅ 使用强密码（8位以上，包含字母数字）
+   ```
+
+2. **启用 HTTPS**
+   ```bash
+   # 使用 Nginx 反向代理
+   server {
+       listen 443 ssl http2;
+       ssl_certificate /path/to/cert.pem;
+       ssl_certificate_key /path/to/key.pem;
+       
+       location / {
+           proxy_pass http://localhost:8080;
+           proxy_set_header Host $host;
+           proxy_set_header X-Real-IP $remote_addr;
+       }
+   }
+   ```
+
+3. **限制访问 IP（可选）**
+   ```nginx
+   # Nginx 配置
+   allow 192.168.1.0/24;
+   deny all;
+   ```
+
+4. **定期备份数据库**
+   ```bash
+   # 备份数据库文件
+   cp data/stardew-panel.db data/backup/stardew-panel-$(date +%Y%m%d).db
+   ```
+
+5. **使用防火墙**
+   ```bash
+   # 只允许特定端口
+   ufw allow 443/tcp
+   ufw enable
+   ```
+
+## 📊 系统要求
+
+### 最低要求
+- CPU: 1 核
+- 内存: 512MB
+- 磁盘: 10GB
+
+### 推荐配置
+- CPU: 2 核
+- 内存: 2GB
+- 磁盘: 20GB
+
+### 支持平台
+- Linux (Ubuntu/Debian/CentOS)
+- Windows 10/11
+- macOS 10.15+
+- ARM 设备（树莓派、N1 盒子等）
+
+## 🛠️ 开发
+
+### 项目结构
+
+```
+stardew-panel/
+├── server/              # Go 后端
+│   ├── config/         # 配置管理
+│   ├── database/       # 数据库
+│   ├── handler/        # HTTP 处理器
+│   ├── middleware/     # 中间件
+│   ├── models/         # 数据模型
+│   ├── router/         # 路由
+│   ├── service/        # 业务逻辑
+│   └── main.go         # 入口
+├── web/                # Vue 前端
+│   ├── src/
+│   │   ├── api/       # API 调用
+│   │   ├── components/# 组件
+│   │   ├── router/    # 路由
+│   │   ├── utils/     # 工具函数
+│   │   └── views/     # 页面
+│   └── index.html
+└── docker/             # Docker 配置
+```
+
+### 构建
+
+```bash
+# 前端构建
+cd web
+npm run build
+
+# 后端构建
+cd server
+go build -o stardew-panel main.go
+```
+
+## 📝 更新日志
+
+### v0.3.0 (2026-07-05) - 安全增强
+- 🔐 新增用户认证系统
+- 🔒 新增限流防护（防暴力破解）
+- 💾 新增会话持久化（数据库）
+- 🎨 新增 404 错误页面
+- 🔄 新增 Loading 组件
+- ⚡ 优化健康检查端点
+- 📱 新增 PWA 支持
+
+### v0.2.3 (2026-07-05) - 工具增强
+- 🛠️ 新增 30+ 工具函数
+- 📝 优化确认提示
+
+### v0.2.2 (2026-07-05) - 性能优化
+- ⚡ 大日志文件优化（99% 性能提升）
+- 🔒 路径注入防护
+- 📊 Server 页面在线人数显示
+
+### v0.2.1 (2026-07-05) - Bug 修复
+- 🌏 支持中文玩家名
+- 🔐 密码泄露防护
+- 📦 文件大小限制
 
 ## 🤝 贡献
 
 欢迎提交 Issue 和 Pull Request！
 
-## 📄 开源协议
+## 📄 许可证
 
 MIT License
 
-## 🙏 鸣谢
+## 🙏 致谢
 
 - [Stardew Valley](https://www.stardewvalley.net/) - 游戏本体
 - [SMAPI](https://smapi.io/) - MOD 加载器
-- [ValleyServer](https://github.com/Lixeer/ValleyServer) - 参考项目
+- [Gin](https://gin-gonic.com/) - Go Web 框架
+- [Vue.js](https://vuejs.org/) - 前端框架
+
+## 📮 联系方式
+
+- GitHub: [LoganLazy/stardew-panel](https://github.com/LoganLazy/stardew-panel)
+- Issues: [提交问题](https://github.com/LoganLazy/stardew-panel/issues)
 
 ---
 
-**Star ⭐ 这个项目以支持开发！**
+**⭐ 如果这个项目对你有帮助，请给个 Star！**

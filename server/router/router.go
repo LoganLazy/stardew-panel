@@ -1,25 +1,75 @@
 package router
 
 import (
+	"net/http"
+	"os"
 	"stardew-panel/config"
+	"stardew-panel/database"
 	"stardew-panel/handler"
+	"stardew-panel/middleware"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
+// CORS 中间件
+func corsMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+
+		c.Next()
+	}
+}
+
 func Setup(cfg *config.Config) *gin.Engine {
 	r := gin.Default()
 
-	// 健康检查
+	// 添加 CORS 中间件
+	r.Use(corsMiddleware())
+
+	// 添加登录限流中间件
+	r.Use(middleware.LoginRateLimit())
+
+	// 健康检查（无需认证）
 	r.GET("/health", func(c *gin.Context) {
+		// 检查数据库连接
+		dbOk := database.DB.Ping() == nil
+
+		status := "ok"
+		if !dbOk {
+			status = "degraded"
+		}
+
 		c.JSON(200, gin.H{
-			"status": "ok",
-			"version": "0.1.0",
+			"status":    status,
+			"version":   "0.3.0",
+			"database":  dbOk,
+			"timestamp": time.Now().Unix(),
 		})
 	})
 
 	// API 路由组
 	api := r.Group("/api/v1")
+
+	// 认证路由（无需认证）
+	auth := api.Group("/auth")
+	{
+		auth.POST("/login", handler.Login)
+		auth.POST("/logout", handler.Logout)
+		auth.GET("/check", handler.AuthMiddleware(), handler.CheckAuth)
+		auth.POST("/change-password", handler.AuthMiddleware(), handler.ChangePassword)
+	}
+
+	// 其他所有路由需要认证
+	api.Use(handler.AuthMiddleware())
 	{
 		// 安装检查
 		api.GET("/install/check", handler.CheckInstallation)
@@ -50,9 +100,9 @@ func Setup(cfg *config.Config) *gin.Engine {
 		players := api.Group("/players")
 		{
 			players.GET("", handler.ListPlayers)
-			players.POST("/whitelist", handler.AddToWhitelist)
-			players.DELETE("/whitelist/:id", handler.RemoveFromWhitelist)
+			players.POST("/refresh", handler.RefreshPlayers)
 			players.POST("/kick", handler.KickPlayer)
+			players.DELETE("/cleanup", handler.CleanupPlayers)
 		}
 
 		// 存档管理
@@ -66,6 +116,16 @@ func Setup(cfg *config.Config) *gin.Engine {
 
 		// 日志
 		api.GET("/logs", handler.GetLogs)
+	}
+
+	// 静态文件服务（生产环境）
+	// 检查是否存在 web/dist 目录
+	if _, err := os.Stat("./web/dist"); err == nil {
+		r.Static("/assets", "./web/dist/assets")
+		r.StaticFile("/", "./web/dist/index.html")
+		r.NoRoute(func(c *gin.Context) {
+			c.File("./web/dist/index.html")
+		})
 	}
 
 	return r
