@@ -1,6 +1,7 @@
 package service
 
 import (
+	"archive/zip"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,11 @@ import (
 	"stardew-panel/database"
 	"stardew-panel/models"
 	"strings"
+)
+
+const (
+	maxModFiles       = 10000
+	maxModExtractSize = uint64(2 * 1024 * 1024 * 1024)
 )
 
 // ModService MOD管理服务
@@ -36,7 +42,7 @@ func (s *ModService) ListMods() ([]models.Mod, error) {
 	}
 	defer rows.Close()
 
-	var mods []models.Mod
+	mods := make([]models.Mod, 0)
 	for rows.Next() {
 		var mod models.Mod
 		var uniqueID, version, author, description sql.NullString
@@ -63,7 +69,7 @@ func (s *ModService) ListMods() ([]models.Mod, error) {
 		mods = append(mods, mod)
 	}
 
-	return mods, nil
+	return mods, rows.Err()
 }
 
 // UploadMod 上传并安装MOD
@@ -73,47 +79,45 @@ func (s *ModService) UploadMod(srcPath, filename string) (*models.Mod, error) {
 		return nil, fmt.Errorf("创建MOD目录失败: %w", err)
 	}
 
-	// 生成目标路径
-	modDir := filepath.Join(s.modsPath, strings.TrimSuffix(filename, filepath.Ext(filename)))
-
-	// 如果是zip文件，解压
-	if strings.HasSuffix(filename, ".zip") {
-		if err := s.unzipMod(srcPath, modDir); err != nil {
-			return nil, fmt.Errorf("解压MOD失败: %w", err)
-		}
-		os.Remove(srcPath) // 删除上传的压缩文件
-	} else {
-		// 直接移动文件
-		if err := os.MkdirAll(modDir, 0755); err != nil {
-			return nil, err
-		}
-		destPath := filepath.Join(modDir, filename)
-		if err := os.Rename(srcPath, destPath); err != nil {
-			return nil, err
-		}
+	// Multipart 文件名可能包含路径分隔符，必须只使用最后一段。
+	filename = filepath.Base(strings.ReplaceAll(filename, "\\", "/"))
+	if filename == "." || filename == ".." || filename == "" {
+		return nil, fmt.Errorf("无效的 MOD 文件名")
 	}
+	modName := strings.TrimSuffix(filename, filepath.Ext(filename))
+	if modName == "" || modName == "." || modName == ".." {
+		return nil, fmt.Errorf("无效的 MOD 名称")
+	}
+	modDir := filepath.Join(s.modsPath, modName)
+	if existing, err := os.Stat(modDir); err == nil && existing.IsDir() {
+		return nil, fmt.Errorf("MOD 已存在: %s", modName)
+	}
+
+	if !strings.EqualFold(filepath.Ext(filename), ".zip") {
+		return nil, fmt.Errorf("仅支持 .zip 格式的 MOD")
+	}
+	if err := s.unzipMod(srcPath, modDir); err != nil {
+		return nil, fmt.Errorf("解压MOD失败: %w", err)
+	}
+	_ = os.Remove(srcPath)
 
 	// 读取manifest.json获取MOD信息
 	mod, err := s.parseModManifest(modDir)
 	if err != nil {
-		// 如果无法解析manifest，使用文件名作为MOD名称
-		mod = &models.Mod{
-			Name:     strings.TrimSuffix(filename, filepath.Ext(filename)),
-			FilePath: modDir,
-			Enabled:  true,
-		}
-	} else {
-		mod.FilePath = modDir
-		mod.Enabled = true
+		_ = os.RemoveAll(modDir)
+		return nil, fmt.Errorf("MOD 缺少有效的 manifest.json: %w", err)
 	}
+	mod.FilePath = modDir
+	mod.Enabled = true
 
 	// 保存到数据库
 	result, err := database.DB.Exec(`
 		INSERT INTO mods (name, unique_id, version, author, description, enabled, file_path)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, mod.Name, mod.UniqueID, mod.Version, mod.Author, mod.Description, mod.Enabled, mod.FilePath)
+	`, mod.Name, nullableString(mod.UniqueID), mod.Version, mod.Author, mod.Description, mod.Enabled, mod.FilePath)
 
 	if err != nil {
+		_ = os.RemoveAll(modDir)
 		return nil, err
 	}
 
@@ -135,6 +139,9 @@ func (s *ModService) ToggleMod(id int, enabled bool) error {
 	if err := row.Scan(&filePath, &currentEnabled); err != nil {
 		return err
 	}
+	if !isWithin(filePath, s.modsPath) {
+		return fmt.Errorf("MOD 路径不在允许的目录内")
+	}
 
 	// 如果状态已经是目标状态，直接返回
 	if currentEnabled == enabled {
@@ -150,6 +157,9 @@ func (s *ModService) ToggleMod(id int, enabled bool) error {
 		// 更新数据库中的路径
 		_, err := database.DB.Exec(`UPDATE mods SET enabled = ?, file_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 			enabled, disabledPath, id)
+		if err != nil {
+			_ = os.Rename(disabledPath, filePath)
+		}
 		return err
 	}
 
@@ -162,6 +172,9 @@ func (s *ModService) ToggleMod(id int, enabled bool) error {
 		// 更新数据库中的路径
 		_, err := database.DB.Exec(`UPDATE mods SET enabled = ?, file_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 			enabled, enabledPath, id)
+		if err != nil {
+			_ = os.Rename(enabledPath, filePath)
+		}
 		return err
 	}
 
@@ -177,6 +190,9 @@ func (s *ModService) DeleteMod(id int) error {
 	var filePath string
 	if err := row.Scan(&filePath); err != nil {
 		return err
+	}
+	if !isWithin(filePath, s.modsPath) {
+		return fmt.Errorf("MOD 路径不在允许的目录内")
 	}
 
 	// 删除文件
@@ -202,22 +218,20 @@ func (s *ModService) ScanMods() error {
 		return err
 	}
 
+	tx, err := database.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	seen := make(map[string]struct{})
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
 
 		modDir := filepath.Join(s.modsPath, entry.Name())
-
-		// 检查是否已在数据库中
-		var count int
-		err := database.DB.QueryRow(`SELECT COUNT(*) FROM mods WHERE file_path = ?`, modDir).Scan(&count)
-		if err != nil {
-			continue
-		}
-		if count > 0 {
-			continue // 已存在
-		}
+		seen[filepath.Clean(modDir)] = struct{}{}
 
 		// 解析manifest
 		mod, err := s.parseModManifest(modDir)
@@ -233,19 +247,85 @@ func (s *ModService) ScanMods() error {
 			mod.Enabled = !strings.HasSuffix(entry.Name(), ".disabled")
 		}
 
-		// 保存到数据库
-		database.DB.Exec(`
+		result, err := tx.Exec(`
+			UPDATE mods
+			SET name = ?, unique_id = ?, version = ?, author = ?, description = ?,
+				enabled = ?, updated_at = CURRENT_TIMESTAMP
+			WHERE file_path = ?
+		`, mod.Name, nullableString(mod.UniqueID), mod.Version, mod.Author, mod.Description, mod.Enabled, mod.FilePath)
+		if err != nil {
+			return err
+		}
+		updated, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if updated == 0 {
+			if _, err := tx.Exec(`
 			INSERT INTO mods (name, unique_id, version, author, description, enabled, file_path)
 			VALUES (?, ?, ?, ?, ?, ?, ?)
-		`, mod.Name, mod.UniqueID, mod.Version, mod.Author, mod.Description, mod.Enabled, mod.FilePath)
+			`, mod.Name, nullableString(mod.UniqueID), mod.Version, mod.Author, mod.Description, mod.Enabled, mod.FilePath); err != nil {
+				return err
+			}
+		}
 	}
 
-	return nil
+	rows, err := tx.Query(`SELECT id, file_path FROM mods`)
+	if err != nil {
+		return err
+	}
+	stale := make([]int, 0)
+	for rows.Next() {
+		var id int
+		var path string
+		if err := rows.Scan(&id, &path); err != nil {
+			rows.Close()
+			return err
+		}
+		if !isWithin(path, s.modsPath) {
+			continue
+		}
+		if _, ok := seen[filepath.Clean(path)]; !ok {
+			stale = append(stale, id)
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, id := range stale {
+		if _, err := tx.Exec(`DELETE FROM mods WHERE id = ?`, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func nullableString(value string) interface{} {
+	if value == "" {
+		return nil
+	}
+	return value
 }
 
 // parseModManifest 解析MOD的manifest.json
 func (s *ModService) parseModManifest(modDir string) (*models.Mod, error) {
-	manifestPath := filepath.Join(modDir, "manifest.json")
+	var manifestPath string
+	err := filepath.Walk(modDir, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !info.IsDir() && strings.EqualFold(info.Name(), "manifest.json") {
+			manifestPath = path
+			return filepath.SkipDir
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if manifestPath == "" {
+		return nil, fmt.Errorf("manifest.json 不存在")
+	}
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
 		return nil, err
@@ -274,9 +354,100 @@ func (s *ModService) parseModManifest(modDir string) (*models.Mod, error) {
 
 // unzipMod 解压MOD文件
 func (s *ModService) unzipMod(src, dest string) error {
-	// 使用install.go中的unzip逻辑
-	// 这里简化实现，实际应该复用
-	return fmt.Errorf("MOD解压功能需要实现")
+	reader, err := zip.OpenReader(src)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	if len(reader.File) == 0 || len(reader.File) > maxModFiles {
+		return fmt.Errorf("MOD 压缩包文件数量无效")
+	}
+	var totalSize uint64
+	var extractedSize uint64
+	for _, file := range reader.File {
+		name := strings.ReplaceAll(file.Name, "\\", "/")
+		if name == "" || strings.HasPrefix(name, "/") {
+			return fmt.Errorf("MOD 包含非法路径: %s", file.Name)
+		}
+		clean := filepath.Clean(filepath.FromSlash(name))
+		if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+			return fmt.Errorf("MOD 包含非法路径: %s", file.Name)
+		}
+		if file.UncompressedSize64 > maxModExtractSize-totalSize {
+			return fmt.Errorf("MOD 解压后大小超过限制")
+		}
+		totalSize += file.UncompressedSize64
+		if file.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("MOD 不允许包含符号链接")
+		}
+	}
+
+	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+		return err
+	}
+	staging, err := os.MkdirTemp(filepath.Dir(dest), ".mod-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(staging)
+
+	for _, file := range reader.File {
+		name := filepath.Clean(filepath.FromSlash(strings.ReplaceAll(file.Name, "\\", "/")))
+		path := filepath.Join(staging, name)
+		if !isWithin(path, staging) {
+			return fmt.Errorf("MOD 包含非法路径: %s", file.Name)
+		}
+		if file.FileInfo().IsDir() {
+			if err := os.MkdirAll(path, 0755); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			return err
+		}
+		out, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+		if err != nil {
+			return err
+		}
+		in, err := file.Open()
+		if err == nil {
+			remaining := maxModExtractSize - extractedSize
+			var written int64
+			written, err = io.Copy(out, io.LimitReader(in, int64(remaining)+1))
+			if err == nil && (written < 0 || uint64(written) > remaining) {
+				err = fmt.Errorf("MOD 解压后大小超过限制")
+			}
+			if err == nil {
+				extractedSize += uint64(written)
+			}
+			_ = in.Close()
+		}
+		closeErr := out.Close()
+		if err != nil {
+			return err
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+	}
+
+	// 大多数 MOD 压缩包自带一个顶层目录，去掉这一层避免 Mods/A/A/manifest.json。
+	entries, err := os.ReadDir(staging)
+	if err != nil {
+		return err
+	}
+	installRoot := staging
+	if len(entries) == 1 && entries[0].IsDir() {
+		installRoot = filepath.Join(staging, entries[0].Name())
+	}
+	return os.Rename(installRoot, dest)
+}
+
+func isWithin(path, root string) bool {
+	rel, err := filepath.Rel(root, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && !filepath.IsAbs(rel)
 }
 
 // CopyFile 复制文件

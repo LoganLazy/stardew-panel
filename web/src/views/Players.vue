@@ -35,9 +35,6 @@
               <span>在线时长: {{ calculateDuration(player.connected_at) }}</span>
             </div>
           </div>
-          <button class="btn btn-secondary" @click="kickPlayer(player.player_name)">
-            踢出
-          </button>
         </div>
       </div>
 
@@ -88,19 +85,6 @@ const refreshPlayers = async () => {
   } catch (error) {
     console.error('Failed to refresh players:', error)
     alert('刷新失败: ' + (error.response?.data?.error || error.message))
-  }
-}
-
-const kickPlayer = async (playerName) => {
-  if (!confirm(`确定要踢出玩家 ${playerName} 吗？`)) return
-
-  try {
-    await api.kickPlayer(playerName)
-    alert('玩家已被踢出')
-    await loadPlayers()
-  } catch (error) {
-    console.error('Failed to kick player:', error)
-    alert('踢出失败: ' + (error.response?.data?.error || error.message))
   }
 }
 

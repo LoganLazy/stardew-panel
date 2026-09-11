@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"stardew-panel/middleware"
 	"stardew-panel/models"
 	"stardew-panel/service"
 	"strings"
@@ -46,7 +47,7 @@ func Login(c *gin.Context) {
 	}
 
 	// 登录成功，重置限流计数
-	// middleware.ResetLoginAttempt(ipAddress)
+	middleware.ResetLoginAttempt(ipAddress)
 
 	c.JSON(http.StatusOK, resp)
 }

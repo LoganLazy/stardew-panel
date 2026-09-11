@@ -1,11 +1,24 @@
 server:
   host: "0.0.0.0"
-  port: "8080"
+  port: "9090"   # 改：避开 sdvd 游戏容器的 8080
+  cors_origins: "" # 默认同源；跨域前端可填逗号分隔的完整 Origin
+  trusted_proxies: "" # 默认不信任转发头；反向代理部署时填代理 IP/CIDR，逗号分隔
 
 database:
   path: "./data/stardew-panel.db"
 
 game:
   server_path: "./game/server"
-  mods_path: "./game/mods"
-  saves_path: "./game/saves"
+  # MOD 必须位于与 sdvd/server 共享的游戏数据卷中。
+  mods_path: "./game/server/Mods"
+  # sdvd 将 StardewValley 配置根目录挂到 game/saves，实际农场位于 Saves 子目录。
+  saves_path: "./game/saves/Saves"
+  backups_path: "./game/saves/backups"
+
+  # 编排相关（改造后新增）
+  compose_file: "docker/docker-compose.yml"   # docker compose 文件路径
+  compose_dir: "."                             # 执行 compose 命令的工作目录
+  game_api_url: "http://server:8080"           # sdvd 游戏容器 REST API（容器网络内）
+  game_api_key: ""                             # sdvd API_KEY，留空则由环境变量 API_KEY 注入
+  game_port: "24642"                           # 宿主对外联机端口，可由 GAME_PORT 覆盖
+  vnc_port: "5800"                             # 宿主对外 VNC 端口，可由 VNC_PORT 覆盖

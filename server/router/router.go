@@ -1,24 +1,38 @@
 package router
 
 import (
+	"log"
 	"net/http"
 	"os"
 	"stardew-panel/config"
 	"stardew-panel/database"
 	"stardew-panel/handler"
 	"stardew-panel/middleware"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
 // CORS 中间件
-func corsMiddleware() gin.HandlerFunc {
+func corsMiddleware(allowedOrigins string) gin.HandlerFunc {
+	allowed := make(map[string]struct{})
+	for _, origin := range strings.Split(allowedOrigins, ",") {
+		if origin = strings.TrimSpace(origin); origin != "" {
+			allowed[origin] = struct{}{}
+		}
+	}
 	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
+		origin := c.GetHeader("Origin")
+		if _, ok := allowed[origin]; origin != "" && ok {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+			c.Writer.Header().Set("Vary", "Origin")
+			c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
+		} else if origin != "" && c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusForbidden)
+			return
+		}
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(http.StatusNoContent)
@@ -32,8 +46,19 @@ func corsMiddleware() gin.HandlerFunc {
 func Setup(cfg *config.Config) *gin.Engine {
 	r := gin.Default()
 
+	trustedProxies := make([]string, 0)
+	for _, proxy := range strings.Split(cfg.Server.TrustedProxies, ",") {
+		if proxy = strings.TrimSpace(proxy); proxy != "" {
+			trustedProxies = append(trustedProxies, proxy)
+		}
+	}
+	if err := r.SetTrustedProxies(trustedProxies); err != nil {
+		log.Printf("Invalid trusted_proxies configuration, proxy headers disabled: %v", err)
+		_ = r.SetTrustedProxies(nil)
+	}
+
 	// 添加 CORS 中间件
-	r.Use(corsMiddleware())
+	r.Use(corsMiddleware(cfg.Server.CORSOrigins))
 
 	// 添加登录限流中间件
 	r.Use(middleware.LoginRateLimit())
@@ -50,7 +75,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 
 		c.JSON(200, gin.H{
 			"status":    status,
-			"version":   "0.3.0",
+			"version":   "0.4.3",
 			"database":  dbOk,
 			"timestamp": time.Now().Unix(),
 		})
@@ -71,12 +96,9 @@ func Setup(cfg *config.Config) *gin.Engine {
 	// 其他所有路由需要认证
 	api.Use(handler.AuthMiddleware())
 	{
-		// 安装检查
+		// 安装检查（容器模式：引导 + 就绪状态）
 		api.GET("/install/check", handler.CheckInstallation)
-		api.POST("/install/upload", handler.UploadGameFiles)
-		api.POST("/install/verify", handler.VerifyGamePath)
-		api.POST("/install/steamcmd", handler.InstallViaSteamCMD)
-		api.GET("/install/status", handler.GetInstallStatus)
+		api.GET("/install/setup", handler.GetSetupStatus)
 
 		// 服务器管理
 		server := api.Group("/server")
@@ -85,6 +107,10 @@ func Setup(cfg *config.Config) *gin.Engine {
 			server.POST("/start", handler.StartServer)
 			server.POST("/stop", handler.StopServer)
 			server.POST("/restart", handler.RestartServer)
+			server.GET("/invite-code", handler.GetInviteCode)
+			server.GET("/settings", handler.GetServerSettings)
+			server.PUT("/settings/:key", handler.UpdateServerSetting)
+			server.GET("/metrics", handler.GetMetrics)
 		}
 
 		// MOD 管理
@@ -116,6 +142,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 
 		// 日志
 		api.GET("/logs", handler.GetLogs)
+		api.GET("/logs/stream", handler.StreamLogs)
 	}
 
 	// 静态文件服务（生产环境）
@@ -124,6 +151,10 @@ func Setup(cfg *config.Config) *gin.Engine {
 		r.Static("/assets", "./web/dist/assets")
 		r.StaticFile("/", "./web/dist/index.html")
 		r.NoRoute(func(c *gin.Context) {
+			if strings.HasPrefix(c.Request.URL.Path, "/api/") {
+				c.JSON(http.StatusNotFound, gin.H{"error": "接口不存在"})
+				return
+			}
 			c.File("./web/dist/index.html")
 		})
 	}

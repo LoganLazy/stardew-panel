@@ -5,6 +5,7 @@ import (
 	"stardew-panel/config"
 	"stardew-panel/service"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -13,7 +14,17 @@ var saveService *service.SaveService
 
 // InitSaveHandler 初始化存档处理器
 func InitSaveHandler(cfg *config.Config) {
-	saveService = service.NewSaveService(cfg.Game.SavesPath)
+	saveService = service.NewSaveService(cfg.Game.SavesPath, cfg.Game.BackupsPath)
+	saveService.StartAutoBackup(24*time.Hour, runSafeAutoBackup)
+}
+
+func runSafeAutoBackup() error {
+	release, err := serverService.AcquireStopped()
+	if err != nil {
+		return err
+	}
+	defer release()
+	return saveService.AutoBackup()
 }
 
 // ListSaves 获取存档列表
@@ -54,6 +65,13 @@ func CreateBackup(c *gin.Context) {
 		return
 	}
 
+	release, err := serverService.AcquireStopped()
+	if err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+	defer release()
+
 	backup, err := saveService.CreateBackup(req.SaveName)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -73,6 +91,13 @@ func RestoreSave(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的备份ID"})
 		return
 	}
+
+	release, err := serverService.AcquireStopped()
+	if err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+	defer release()
 
 	if err := saveService.RestoreBackup(id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -109,6 +134,10 @@ func GetLogs(c *gin.Context) {
 	lines := 100
 	if l := c.Query("lines"); l != "" {
 		if parsed, err := strconv.Atoi(l); err == nil {
+			if parsed < 1 || parsed > 2000 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "lines 必须在 1 到 2000 之间"})
+				return
+			}
 			lines = parsed
 		}
 	}

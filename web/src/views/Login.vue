@@ -37,12 +37,6 @@
         </button>
       </form>
 
-      <div class="info-box">
-        <p>💡 <strong>首次登录默认账号：</strong></p>
-        <p>用户名: <code>admin</code></p>
-        <p>密码: <code>admin123</code></p>
-        <p class="warning">⚠️ 登录后请立即修改密码！</p>
-      </div>
     </div>
   </div>
 </template>
@@ -123,7 +117,7 @@ const handleLogin = async () => {
 }
 
 .login-form {
-  margin-bottom: 2rem;
+  margin-bottom: 0;
 }
 
 .form-group {
@@ -186,30 +180,4 @@ const handleLogin = async () => {
   cursor: not-allowed;
 }
 
-.info-box {
-  background: #FFFBF0;
-  border: 1px solid #FFE69C;
-  border-radius: 8px;
-  padding: 1rem;
-  font-size: 0.9rem;
-}
-
-.info-box p {
-  margin: 0.5rem 0;
-  color: #5C635D;
-}
-
-.info-box code {
-  background: #FFF;
-  padding: 0.2rem 0.5rem;
-  border-radius: 4px;
-  font-family: 'Courier New', monospace;
-  color: #C4612F;
-}
-
-.info-box .warning {
-  color: #C62828;
-  font-weight: 500;
-  margin-top: 0.5rem;
-}
 </style>

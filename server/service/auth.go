@@ -4,8 +4,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"stardew-panel/database"
 	"stardew-panel/models"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -74,8 +76,8 @@ func (s *AuthService) ChangePassword(username, oldPassword, newPassword string) 
 	}
 
 	// 密码强度检查
-	if len(newPassword) < 6 {
-		return fmt.Errorf("新密码至少需要 6 个字符")
+	if len(newPassword) < 12 {
+		return fmt.Errorf("新密码至少需要 12 个字符")
 	}
 
 	// 加密新密码
@@ -86,8 +88,20 @@ func (s *AuthService) ChangePassword(username, oldPassword, newPassword string) 
 
 	// 更新密码
 	query := `UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE username = ?`
-	_, err = database.DB.Exec(query, string(hashedPassword), username)
+	tx, err := database.DB.Begin()
 	if err != nil {
+		return fmt.Errorf("更新密码失败: %w", err)
+	}
+	if _, err = tx.Exec(query, string(hashedPassword), username); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("更新密码失败: %w", err)
+	}
+	// 密码变更后撤销该用户的所有旧会话，避免旧 Token 继续有效。
+	if _, err = tx.Exec(`DELETE FROM sessions WHERE username = ?`, username); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("撤销旧会话失败: %w", err)
+	}
+	if err = tx.Commit(); err != nil {
 		return fmt.Errorf("更新密码失败: %w", err)
 	}
 
@@ -108,23 +122,28 @@ func (s *AuthService) InitDefaultUser() error {
 		return nil
 	}
 
-	// 创建默认用户：admin / admin123
-	defaultPassword := "admin123"
+	username := strings.TrimSpace(os.Getenv("ADMIN_USERNAME"))
+	if username == "" {
+		username = "admin"
+	}
+	defaultPassword := os.Getenv("ADMIN_PASSWORD")
+	if len(defaultPassword) < 12 {
+		return fmt.Errorf("首次启动必须设置 ADMIN_PASSWORD，且至少 12 个字符")
+	}
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(defaultPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return fmt.Errorf("密码加密失败: %w", err)
 	}
 
 	query := `INSERT INTO users (username, password_hash) VALUES (?, ?)`
-	_, err = database.DB.Exec(query, "admin", string(hashedPassword))
+	_, err = database.DB.Exec(query, username, string(hashedPassword))
 	if err != nil {
 		return fmt.Errorf("创建默认用户失败: %w", err)
 	}
 
 	fmt.Println("✅ 默认用户已创建")
-	fmt.Println("   用户名: admin")
-	fmt.Println("   密码: admin123")
-	fmt.Println("   ⚠️  请立即登录后修改密码！")
+	fmt.Printf("   用户名: %s\n", username)
+	fmt.Println("   初始密码来自 ADMIN_PASSWORD，请登录后立即修改。")
 
 	return nil
 }

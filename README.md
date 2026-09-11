@@ -3,74 +3,61 @@
 一个轻量级的星露谷物语专用服务器管理面板，专为低配设备（树莓派/N1 盒子）优化。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go)](https://golang.org)
-[![Vue Version](https://img.shields.io/badge/Vue-3.4+-4FC08D?logo=vue.js)](https://vuejs.org)
+[![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go)](https://golang.org)
+[![Vue Version](https://img.shields.io/badge/Vue-3.5+-4FC08D?logo=vue.js)](https://vuejs.org)
+
+> **架构说明（v0.4 起）**：本面板不再自己运行游戏进程，而是作为**中文编排层**，
+> 通过 Docker 编排经过验证的社区无头服务器 [`sdvd/server`](https://github.com/stardew-valley-dedicated-server/server)
+> （自带 SMAPI + Xvfb + REST API + VNC），并代理其数据。游戏的下载/无头运行由该容器负责，
+> 面板负责起停、状态展示、存档、设置代理。**详细部署见 [docs/DEPLOY.md](docs/DEPLOY.md)**。
 
 ## ✨ 特性
 
-- 🔐 **用户认证** - 登录/退出/密码修改，保护公网访问 🆕
-- 🚀 **灵活安装** - 支持上传文件/指定路径/SteamCMD 三种安装方式
-- 🎮 **MOD 管理** - 可视化安装/启用/禁用 MOD（基于 SMAPI）
-- 👥 **玩家监控** - 实时在线玩家、支持中文玩家名 🆕
-- 💾 **存档管理** - 自动备份、一键恢复
-- 📊 **实时监控** - 服务器状态、在线玩家、日志查看
-- ⚡ **性能优化** - 大日志文件优化，99% 性能提升 🆕
+- 🔐 **用户认证** - 登录/退出/密码修改，保护公网访问
+- 🐳 **容器编排** - 一键起停 sdvd/server 游戏容器，无需手动折腾 SMAPI/Xvfb
+- 🎮 **MOD 管理** - 可视化管理 MOD（基于 SMAPI）
+- 👥 **玩家监控** - 代理游戏 API 拿实时在线玩家，支持中文玩家名
+- 🔗 **邀请码** - 面板直接显示联机邀请码，一键复制发好友
+- 🖥️ **VNC 画面** - 一键打开游戏画面（需开启渲染）
+- 💾 **存档管理** - 停服自动备份、每日安全检查、一键恢复
+- ⚙️ **设置代理** - 最大玩家数、自动过天等游戏设置直接在面板改
+- 📊 **性能监控** - 容器 CPU/内存/网络占用与面板进程指标实时展示
+- 📡 **实时日志** - 游戏容器日志 SSE 推送，断线自动重连
 - 🔒 **安全可靠** - 限流防护、会话持久化、密码加密
-- 📱 **移动适配** - 手机也能管理服务器
 - 🇨🇳 **中文优先** - 界面和文档全中文
-- 🌍 **跨平台** - 支持 Linux AMD64/ARM64
 
 ## 🎯 技术栈
 
-- **后端**: Go 1.22 + Gin + SQLite + bcrypt
-- **前端**: Vue 3 + Vite + Pinia + Axios
+- **后端**: Go 1.25 + Gin + SQLite + bcrypt
+- **前端**: Vue 3 + Vite + Vue Router + Axios
 - **部署**: Docker + Docker Compose
 
 ## 🚀 快速开始
 
-### 方式一：Docker 部署（推荐）
+**前置要求**：一台 4G 内存的 Linux 服务器（2G 吃紧）、Docker + Docker Compose、**拥有《星露谷物语》的正版 Steam 账号**。
+
+完整步骤见 **[docs/DEPLOY.md](docs/DEPLOY.md)**，概览：
 
 ```bash
-# 克隆仓库
-git clone https://github.com/LoganLazy/stardew-panel.git
-cd stardew-panel
-
-# 启动服务
 cd docker
-docker-compose up -d --build
+cp .env.example .env          # 填 Steam 账号、面板初始密码、VNC 密码、API_KEY
 
-# 等待 2-5 分钟构建完成
-# 访问 http://localhost:8080
+# 首次：交互式登录 Steam 并下载游戏（过 Steam Guard 验证）
+docker compose run --rm -it steam-auth setup
+
+# 起全部服务
+docker compose up -d
+
+# 访问面板 http://<服务器IP>:9090
 ```
 
-### 方式二：本地开发
+> ⚠️ Steam Guard 首次验证是交互式的，只能在命令行完成（`steam-auth setup` 那步），
+> 面板无法代替。之后 refresh token 会持久化，不用重复验证。
 
-**前置要求**: Go 1.22+, Node.js 18+
+## 🔐 首次登录
 
-```bash
-# 后端
-cd server
-go mod download
-go run main.go
-
-# 前端（新终端）
-cd web
-npm install
-npm run dev
-
-# 访问 http://localhost:5173
-```
-
-## 🔐 默认账号
-
-首次启动后，控制台会显示默认账号：
-
-```
-用户名: admin
-密码: admin123
-```
-
-⚠️ **请立即登录后修改密码！**
+首次启动前必须在 `docker/.env` 设置 `ADMIN_PASSWORD`（至少 12 个字符），
+可选设置 `ADMIN_USERNAME`。面板不会再使用固定默认密码。
 
 修改密码步骤：
 1. 登录后点击右上角 "⚙️ 设置"
@@ -123,7 +110,7 @@ npm run dev
 1. **立即修改默认密码**
    ```
    ❌ 不要使用 admin123
-   ✅ 使用强密码（8位以上，包含字母数字）
+   ✅ 使用强密码（12位以上，包含字母数字）
    ```
 
 2. **启用 HTTPS**
@@ -135,12 +122,15 @@ npm run dev
        ssl_certificate_key /path/to/key.pem;
        
        location / {
-           proxy_pass http://localhost:8080;
+           proxy_pass http://localhost:9090;
            proxy_set_header Host $host;
            proxy_set_header X-Real-IP $remote_addr;
        }
    }
    ```
+
+   使用反向代理时，在 `docker/.env` 将代理的实际 IP 或 CIDR 填入
+   `TRUSTED_PROXIES`；默认不信任客户端提供的转发头。不要配置 `0.0.0.0/0`。
 
 3. **限制访问 IP（可选）**
    ```nginx
@@ -165,20 +155,19 @@ npm run dev
 ## 📊 系统要求
 
 ### 最低要求
-- CPU: 1 核
-- 内存: 512MB
-- 磁盘: 10GB
+- CPU: 2 核
+- 内存: 2GB（仅适合少量 MOD，并建议将 `SERVER_TPS` 调低到 30）
+- 磁盘: 20GB
 
 ### 推荐配置
 - CPU: 2 核
-- 内存: 2GB
-- 磁盘: 20GB
+- 内存: 4GB 或更多
+- 磁盘: 30GB 或更多
 
 ### 支持平台
-- Linux (Ubuntu/Debian/CentOS)
-- Windows 10/11
-- macOS 10.15+
-- ARM 设备（树莓派、N1 盒子等）
+- 生产部署：Linux x86_64 / arm64，Docker Engine + Compose v2
+- 本地开发：Linux、Windows 10/11、macOS（需 Go、Node.js 和 CGO 工具链）
+- 低功耗 ARM 设备可运行，但建议至少 4GB 内存
 
 ## 🛠️ 开发
 
@@ -198,9 +187,7 @@ stardew-panel/
 ├── web/                # Vue 前端
 │   ├── src/
 │   │   ├── api/       # API 调用
-│   │   ├── components/# 组件
 │   │   ├── router/    # 路由
-│   │   ├── utils/     # 工具函数
 │   │   └── views/     # 页面
 │   └── index.html
 └── docker/             # Docker 配置
@@ -215,33 +202,13 @@ npm run build
 
 # 后端构建
 cd server
-go build -o stardew-panel main.go
+# go-sqlite3 需要 CGO 和 C 编译器；生产环境推荐使用 Dockerfile 构建
+CGO_ENABLED=1 go build -o stardew-panel main.go
 ```
 
 ## 📝 更新日志
 
-### v0.3.0 (2026-07-05) - 安全增强
-- 🔐 新增用户认证系统
-- 🔒 新增限流防护（防暴力破解）
-- 💾 新增会话持久化（数据库）
-- 🎨 新增 404 错误页面
-- 🔄 新增 Loading 组件
-- ⚡ 优化健康检查端点
-- 📱 新增 PWA 支持
-
-### v0.2.3 (2026-07-05) - 工具增强
-- 🛠️ 新增 30+ 工具函数
-- 📝 优化确认提示
-
-### v0.2.2 (2026-07-05) - 性能优化
-- ⚡ 大日志文件优化（99% 性能提升）
-- 🔒 路径注入防护
-- 📊 Server 页面在线人数显示
-
-### v0.2.1 (2026-07-05) - Bug 修复
-- 🌏 支持中文玩家名
-- 🔐 密码泄露防护
-- 📦 文件大小限制
+版本变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 🤝 贡献
 

@@ -2,21 +2,110 @@ package service
 
 import (
 	"bufio"
-	"database/sql"
+	"errors"
 	"os"
 	"regexp"
 	"stardew-panel/database"
 	"stardew-panel/models"
 	"strings"
-	"time"
 )
 
-// PlayerService 玩家管理服务
-type PlayerService struct{}
+var ErrKickPlayerUnsupported = errors.New("当前游戏服务器 API 不支持踢出玩家")
 
-// NewPlayerService 创建玩家服务
-func NewPlayerService() *PlayerService {
-	return &PlayerService{}
+// PlayerService 玩家管理服务。
+// 改造后优先从 sdvd 游戏容器 REST API 拿实时玩家（gameAPI），
+// 拿不到时回退到日志解析 + 数据库缓存（老逻辑保留作兜底）。
+type PlayerService struct {
+	gameAPI *GameAPIClient
+}
+
+// NewPlayerService 创建玩家服务。
+// gameAPIURL/gameAPIKey 为空时退化为纯日志/数据库模式。
+func NewPlayerService(gameAPIURL, gameAPIKey string) *PlayerService {
+	return &PlayerService{
+		gameAPI: NewGameAPIClient(gameAPIURL, gameAPIKey),
+	}
+}
+
+// GetLivePlayers 从 sdvd 游戏容器 API 拿实时在线玩家。
+// 返回的是玩家名列表；API 不可用时返回 error，由调用方回退到数据库。
+func (s *PlayerService) GetLivePlayers() ([]models.OnlinePlayer, error) {
+	apiPlayers, err := s.gameAPI.GetPlayers()
+	if err != nil {
+		return nil, err
+	}
+
+	names := make([]string, 0, len(apiPlayers))
+	for _, p := range apiPlayers {
+		if !p.IsOnline {
+			continue
+		}
+		names = append(names, p.Name)
+	}
+	if err := s.syncLivePlayers(names); err != nil {
+		return nil, err
+	}
+	return s.GetOnlinePlayers()
+}
+
+// syncLivePlayers 将游戏 API 快照写入历史表，同时保留仍在线玩家的加入时间。
+func (s *PlayerService) syncLivePlayers(names []string) error {
+	tx, err := database.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.Query(`SELECT player_name FROM online_players WHERE is_online = 1`)
+	if err != nil {
+		return err
+	}
+	current := make(map[string]struct{})
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			rows.Close()
+			return err
+		}
+		current[name] = struct{}{}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+
+	live := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		live[name] = struct{}{}
+		if _, ok := current[name]; ok {
+			if _, err := tx.Exec(`UPDATE online_players SET last_seen = CURRENT_TIMESTAMP WHERE player_name = ? AND is_online = 1`, name); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, err := tx.Exec(`
+			INSERT INTO online_players (player_name, connected_at, last_seen, is_online)
+			VALUES (?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1)
+		`, name); err != nil {
+			return err
+		}
+	}
+
+	for name := range current {
+		if _, ok := live[name]; ok {
+			continue
+		}
+		if _, err := tx.Exec(`
+			UPDATE online_players SET is_online = 0, last_seen = CURRENT_TIMESTAMP
+			WHERE player_name = ? AND is_online = 1
+		`, name); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // GetOnlinePlayers 获取在线玩家列表
@@ -33,7 +122,7 @@ func (s *PlayerService) GetOnlinePlayers() ([]models.OnlinePlayer, error) {
 	}
 	defer rows.Close()
 
-	var players []models.OnlinePlayer
+	players := make([]models.OnlinePlayer, 0)
 	for rows.Next() {
 		var player models.OnlinePlayer
 		err := rows.Scan(&player.ID, &player.PlayerName, &player.ConnectedAt, &player.LastSeen, &player.IsOnline)
@@ -156,9 +245,7 @@ func (s *PlayerService) playerLeft(playerName string) error {
 
 // KickPlayer 踢出玩家
 func (s *PlayerService) KickPlayer(playerName string) error {
-	// TODO: 需要游戏服务器API支持
-	// 这里只是标记为离线
-	return s.playerLeft(playerName)
+	return ErrKickPlayerUnsupported
 }
 
 // GetPlayerStats 获取玩家统计
@@ -181,7 +268,7 @@ func (s *PlayerService) GetPlayerStats() (map[string]interface{}, error) {
 		return nil, err
 	}
 
-	return map[string]interface{
+	return map[string]interface{}{
 		"online_count": onlineCount,
 		"total_count":  totalCount,
 	}, nil

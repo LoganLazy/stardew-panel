@@ -1,37 +1,129 @@
-version: '3.8'
+# StardewPanel 编排：中文管理面板 + sdvd/server 无头游戏容器
+#
+# 架构：
+#   stardew-panel  —— 本项目，中文管理界面（:9090）。通过挂载的 docker.sock
+#                      对本文件执行 docker compose 命令来起停 server / steam-auth，
+#                      并代理 server 容器的 REST API（http://server:8080）拿状态。
+#   server         —— sdvd/server，无头星露谷（SMAPI + Xvfb 都在里面）。
+#                      VNC 网页 :5800，联机 :24642/udp。
+#   steam-auth     —— 用你的正版 Steam 账号下载游戏文件。
+#
+# 首次部署见 docs/DEPLOY.md：需 cp .env.example .env 填 Steam 账号，
+# 并跑一次 `docker compose run --rm -it steam-auth setup` 过 Steam Guard。
+#
+# name 固定项目名：宿主直接 `docker compose up` 与面板在容器内执行 compose
+# 命令必须落在同一项目名下，否则会各自创建一套重复容器/卷。切勿删除本行。
+
+name: stardew
 
 services:
   stardew-panel:
     build:
       context: ..
       dockerfile: docker/Dockerfile.panel
+    image: stardew-panel:local
     container_name: stardew-panel
     ports:
-      - "8080:8080"
+      - "${PANEL_PORT:-9090}:9090"
     volumes:
       - panel-data:/root/data
-      - game-data:/root/game
+      # 与游戏容器共享游戏文件和 Mods 目录
+      - game-data:/root/game/server
+      # 与游戏容器共享存档，面板才能做备份
+      - saves:/root/game/saves
+      # 挂 docker.sock：面板在容器内执行 docker compose 控制兄弟容器
+      # （docker-outside-of-docker）。安全代价见 docs/DEPLOY.md，勿裸露公网。
+      - /var/run/docker.sock:/var/run/docker.sock
+      # 把本 compose 文件 + .env 挂进去：面板执行 compose 命令时用它作为编排定义。
+      # .env 必须一并挂载，否则面板重启容器时 ${VNC_PASSWORD}/${STEAM_*} 等
+      # 会解析为空，用空配置覆盖正在运行的容器（丢失 Steam 凭据/API_KEY 不匹配）。
+      - ./docker-compose.yml:/root/compose/docker-compose.yml:ro
+      - ./.env:/root/compose/.env:ro
+      - ../config.yaml:/root/config.yaml:ro
     environment:
       - STARDEW_PANEL_CONFIG=/root/config.yaml
+      - PANEL_PORT=9090
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
+      - TRUSTED_PROXIES=${TRUSTED_PROXIES:-}
+      - COMPOSE_FILE=/root/compose/docker-compose.yml
+      - COMPOSE_DIR=/root/compose
+      # 面板通过 docker 内网访问游戏容器的 REST API
+      - GAME_API_URL=http://server:8080
+      - API_KEY=${API_KEY:-}
+      - GAME_PORT=${GAME_PORT:-24642}
+      - VNC_PORT=${VNC_PORT:-5800}
     restart: unless-stopped
     networks:
       - stardew-net
 
-  # 星露谷服务器容器（待实现）
-  # stardew-server:
-  #   image: placeholder/stardew-server:latest
-  #   container_name: stardew-server
-  #   ports:
-  #     - "24642:24642"
-  #   volumes:
-  #     - game-data:/game
-  #   restart: unless-stopped
-  #   networks:
-  #     - stardew-net
+  # 主游戏服务器（sdvd/server，已发布镜像，无需本地构建）
+  server:
+    image: sdvd/server:${IMAGE_VERSION:-1.0.0}
+    container_name: sdvd-server
+    stdin_open: true
+    tty: true
+    ports:
+      - "${VNC_PORT:-5800}:5800"       # VNC 网页，看游戏画面
+      - "${GAME_PORT:-24642}:24642/udp" # 联机端口，玩家连这个
+      - "${QUERY_PORT:-27015}:27015/udp"
+      # 注意：游戏容器的 REST API :8080 不映射到宿主，仅内网供 panel 代理
+    cap_add:
+      - SYS_TIME  # 同步时间，保证 GalaxyAuth 正常
+    volumes:
+      - game-data:/data/game
+      - saves:/config/xdg/config/StardewValley
+      - server-settings:/data/settings
+    environment:
+      STEAM_AUTH_URL: "http://steam-auth:${STEAM_AUTH_PORT:-3001}"
+      VNC_PASSWORD: "${VNC_PASSWORD:-}"
+      ALLOW_INSECURE_SETUP: "${ALLOW_INSECURE_SETUP:-false}"
+      SERVER_TPS: "${SERVER_TPS:-60}"
+      SERVER_FPS: "${SERVER_FPS:-0}"
+      SETTINGS_PATH: "/data/settings/server-settings.json"
+      API_ENABLED: "true"
+      API_PORT: "8080"
+      API_KEY: "${API_KEY:-}"
+      SERVER_PASSWORD: "${SERVER_PASSWORD:-}"
+      MAX_LOGIN_ATTEMPTS: "${MAX_LOGIN_ATTEMPTS:-3}"
+      AUTH_TIMEOUT_SECONDS: "${AUTH_TIMEOUT_SECONDS:-120}"
+    depends_on:
+      steam-auth:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - stardew-net
+
+  # Steam 认证 + 下载游戏文件
+  steam-auth:
+    image: sdvd/steam-service:${IMAGE_VERSION:-1.0.0}
+    container_name: sdvd-steam-auth
+    stdin_open: true
+    tty: true
+    expose:
+      - "${STEAM_AUTH_PORT:-3001}"
+    volumes:
+      - steam-session:/data/steam-session
+      - game-data:/data/game
+    environment:
+      PORT: "${STEAM_AUTH_PORT:-3001}"
+      GAME_DIR: "/data/game"
+      SESSION_DIR: "/data/steam-session"
+      STEAM_USERNAME: "${STEAM_USERNAME:-}"
+      STEAM_PASSWORD: "${STEAM_PASSWORD:-}"
+      STEAM_REFRESH_TOKEN: "${STEAM_REFRESH_TOKEN:-}"
+      STEAM_KEEP_LANGUAGES: "${STEAM_KEEP_LANGUAGES:-zh-CN}"
+    restart: unless-stopped
+    networks:
+      - stardew-net
 
 volumes:
-  panel-data:
-  game-data:
+  panel-data:      # 面板数据库/日志
+  game-data:       # 下载的游戏文件（steam-auth 写，server 读）
+  saves:           # 存档（server 写，panel 备份读）
+  steam-session:   # Steam 会话（持久化 refresh token，免重复过 Guard）
+  server-settings: # 游戏服务器设置
 
 networks:
   stardew-net:

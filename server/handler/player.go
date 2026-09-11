@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
+	"stardew-panel/config"
 	"stardew-panel/service"
 	"strconv"
 	"time"
@@ -12,32 +14,44 @@ import (
 var playerService *service.PlayerService
 
 // InitPlayerHandler 初始化玩家处理器
-func InitPlayerHandler() {
-	playerService = service.NewPlayerService()
+func InitPlayerHandler(cfg *config.Config) {
+	playerService = service.NewPlayerService(cfg.Game.GameAPIURL, cfg.Game.GameAPIKey)
 }
 
-// ListPlayers 获取在线玩家列表
+// ListPlayers 获取在线玩家列表。
+// 优先从 sdvd 游戏容器 API 拿实时数据；API 不可用时回退到日志解析 + 数据库。
 func ListPlayers(c *gin.Context) {
-	// 先解析日志更新玩家状态
+	// 优先：游戏容器实时玩家
+	if live, err := playerService.GetLivePlayers(); err == nil {
+		stats, statsErr := playerService.GetPlayerStats()
+		if statsErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": statsErr.Error()})
+			return
+		}
+		stats["source"] = "game_api"
+		c.JSON(http.StatusOK, gin.H{
+			"players": live,
+			"stats":   stats,
+		})
+		return
+	}
+
+	// 回退：日志解析 + 数据库缓存
 	playerService.ParseLogForPlayers()
 
-	// 获取在线玩家
 	players, err := playerService.GetOnlinePlayers()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// 获取统计信息
 	stats, err := playerService.GetPlayerStats()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// 计算在线时长
 	for i := range players {
-		duration := time.Since(players[i].ConnectedAt)
 		players[i].LastSeen = time.Now()
 	}
 
@@ -49,6 +63,10 @@ func ListPlayers(c *gin.Context) {
 
 // RefreshPlayers 手动刷新玩家列表（解析日志）
 func RefreshPlayers(c *gin.Context) {
+	if _, err := playerService.GetLivePlayers(); err == nil {
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "玩家列表已刷新"})
+		return
+	}
 	if err := playerService.ParseLogForPlayers(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -76,8 +94,11 @@ func KickPlayer(c *gin.Context) {
 		return
 	}
 
-	// TODO: 实现真正的踢人逻辑（需要游戏服务器API支持）
 	if err := playerService.KickPlayer(req.PlayerName); err != nil {
+		if errors.Is(err, service.ErrKickPlayerUnsupported) {
+			c.JSON(http.StatusNotImplemented, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -93,6 +114,10 @@ func CleanupPlayers(c *gin.Context) {
 	days := 30
 	if d := c.Query("days"); d != "" {
 		if parsed, err := strconv.Atoi(d); err == nil {
+			if parsed < 0 || parsed > 3650 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "days 必须在 0 到 3650 之间"})
+				return
+			}
 			days = parsed
 		}
 	}

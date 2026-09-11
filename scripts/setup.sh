@@ -5,14 +5,14 @@ echo "================================"
 
 # 检查 Go
 if ! command -v go &> /dev/null; then
-    echo "❌ 未安装 Go，请先安装 Go 1.22+"
+    echo "❌ 未安装 Go，请先安装 Go 1.25+"
     exit 1
 fi
 echo "✅ Go 版本: $(go version)"
 
 # 检查 Node.js
 if ! command -v node &> /dev/null; then
-    echo "❌ 未安装 Node.js，请先安装 Node.js 18+"
+    echo "❌ 未安装 Node.js，请先安装 Node.js 20.19+"
     exit 1
 fi
 echo "✅ Node.js 版本: $(node --version)"
@@ -23,8 +23,9 @@ echo "📁 创建目录..."
 mkdir -p data
 mkdir -p data/temp
 mkdir -p game/server
-mkdir -p game/mods
-mkdir -p game/saves
+mkdir -p game/server/Mods
+mkdir -p game/saves/Saves
+mkdir -p game/saves/backups
 
 # 下载后端依赖
 echo ""
@@ -41,7 +42,7 @@ cd ..
 echo ""
 echo "📦 安装前端依赖..."
 cd web
-npm install
+npm ci
 if [ $? -ne 0 ]; then
     echo "❌ 安装前端依赖失败"
     exit 1
@@ -57,9 +58,9 @@ echo "     - 后端: cd server && go run main.go"
 echo "     - 前端: cd web && npm run dev"
 echo ""
 echo "  2. Docker 部署："
-echo "     cd docker && docker-compose up -d"
+echo "     cd docker && docker compose up -d"
 echo ""
 echo "访问地址："
-echo "  - 前端开发: http://localhost:5173"
-echo "  - 后端 API: http://localhost:8080"
-echo "  - 健康检查: http://localhost:8080/health"
+echo "  - 前端开发: http://localhost:3000"
+echo "  - 后端 API: http://localhost:9090"
+echo "  - 健康检查: http://localhost:9090/health"

@@ -12,7 +12,6 @@ dist/
 *.dylib
 *.test
 *.out
-go.sum
 
 # Database
 *.db
@@ -22,6 +21,8 @@ go.sum
 # IDE
 .vscode/
 .idea/
+.claude/
+.agents/
 *.swp
 *.swo
 

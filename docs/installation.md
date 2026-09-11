@@ -1,88 +1,46 @@
-# StardewPanel 安装指南
+# 安装指南
 
-## 系统要求
-
-- Linux (amd64/arm64)
-- Docker 20.10+
-- Docker Compose 2.0+
-- 最低 1GB RAM / 10GB 磁盘空间
+项目当前使用 Docker 编排 `stardew-panel`、`sdvd/server` 和 `steam-auth` 三个服务。
+旧版 SteamCMD 下载、手动启动 StardewValley、8080 面板的流程已移除。
 
 ## 快速安装
 
-### 一键安装（推荐）
-
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yourusername/stardew-panel/main/scripts/install.sh | bash
+git clone https://github.com/LoganLazy/stardew-panel.git
+cd stardew-panel/docker
+cp .env.example .env
+nano .env
+docker compose config
+docker compose build
+docker compose run --rm -it steam-auth setup
+docker compose up -d
 ```
 
-### 手动安装
+`.env` 至少需要填写：
 
-```bash
-# 1. 克隆仓库
-git clone https://github.com/yourusername/stardew-panel.git
-cd stardew-panel
+- `STEAM_USERNAME` / `STEAM_PASSWORD`
+- `ADMIN_PASSWORD`（至少 12 个字符）
+- `VNC_PASSWORD`
+- `API_KEY`
 
-# 2. 启动服务
-cd docker
-docker-compose up -d
+面板地址为 `http://<服务器IP>:9090`，VNC 地址为 `http://<服务器IP>:5800`。
 
-# 3. 访问面板
-# 浏览器打开 http://your-server-ip:8080
-```
+## 数据和端口
 
-## 配置
+- `panel-data`：面板数据库
+- `game-data`：游戏文件和 Mods
+- `saves`：存档
+- `steam-session`：Steam 登录态
+- `server-settings`：游戏服务器设置
 
-### 修改端口
-
-编辑 `docker/docker-compose.yml`：
-
-```yaml
-services:
-  stardew-panel:
-    ports:
-      - "你的端口:8080"  # 修改左边的端口
-```
-
-### 数据持久化
-
-所有数据存储在 Docker 卷中：
-- `panel-data`: 面板数据（数据库、配置）
-- `game-data`: 游戏数据（存档、MOD）
-
-备份命令：
-```bash
-docker run --rm -v stardew-panel_game-data:/data -v $(pwd):/backup alpine tar czf /backup/backup.tar.gz /data
-```
-
-## 常见问题
-
-### 1. 端口被占用
-
-修改 `docker-compose.yml` 中的端口映射。
-
-### 2. 权限问题
-
-确保当前用户在 docker 组：
-```bash
-sudo usermod -aG docker $USER
-```
-
-### 3. N1/树莓派部署
-
-确认架构后拉取对应镜像：
-```bash
-docker pull --platform linux/arm64 your-image
-```
+默认端口：面板 TCP 9090、VNC TCP 5800、联机 UDP 24642、查询 UDP 27015。
+修改宿主端口请编辑 `.env`，不要修改容器内部端口。
 
 ## 卸载
 
 ```bash
-cd /opt/stardew-panel/docker
-docker-compose down -v  # -v 会删除所有数据
+docker compose down       # 保留数据卷
+docker compose down -v    # 同时删除数据卷，谨慎执行
 ```
 
-## 下一步
-
-- [配置星露谷服务器](server-setup.md)
-- [安装 MOD](mod-installation.md)
-- [常见问题](faq.md)
+完整部署说明见 [DEPLOY.md](DEPLOY.md)。

@@ -24,7 +24,7 @@ func main() {
 	// 初始化默认用户（首次启动）
 	authService := handler.InitAuthHandler()
 	if err := authService.InitDefaultUser(); err != nil {
-		log.Printf("Warning: Failed to init default user: %v", err)
+		log.Fatalf("Failed to init default user: %v", err)
 	}
 
 	// 启动会话清理任务
@@ -34,7 +34,7 @@ func main() {
 	handler.InitInstallHandler(cfg)
 	handler.InitServerHandler(cfg)
 	handler.InitModHandler(cfg)
-	handler.InitPlayerHandler()
+	handler.InitPlayerHandler(cfg)
 	handler.InitSaveHandler(cfg)
 
 	// 初始化路由

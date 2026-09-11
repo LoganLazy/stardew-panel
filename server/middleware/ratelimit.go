@@ -24,18 +24,21 @@ type LoginAttempt struct {
 var rateLimiter = &RateLimiter{
 	attempts: make(map[string]*LoginAttempt),
 }
+var cleanupOnce sync.Once
 
 // LoginRateLimit 登录限流中间件
 // 限制：同一 IP 5 分钟内最多尝试 5 次
 // 超过后封禁 15 分钟
 func LoginRateLimit() gin.HandlerFunc {
 	// 定期清理过期记录
-	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
-		for range ticker.C {
-			rateLimiter.cleanup()
-		}
-	}()
+	cleanupOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(5 * time.Minute)
+			for range ticker.C {
+				rateLimiter.cleanup()
+			}
+		}()
+	})
 
 	return func(c *gin.Context) {
 		// 只对登录接口限流
@@ -47,8 +50,6 @@ func LoginRateLimit() gin.HandlerFunc {
 		ip := c.ClientIP()
 
 		rateLimiter.mu.Lock()
-		defer rateLimiter.mu.Unlock()
-
 		attempt, exists := rateLimiter.attempts[ip]
 		now := time.Now()
 
@@ -58,6 +59,7 @@ func LoginRateLimit() gin.HandlerFunc {
 				Count:     1,
 				FirstTime: now,
 			}
+			rateLimiter.mu.Unlock()
 			c.Next()
 			return
 		}
@@ -65,8 +67,9 @@ func LoginRateLimit() gin.HandlerFunc {
 		// 检查是否在封禁期
 		if !attempt.BlockedAt.IsZero() {
 			if now.Sub(attempt.BlockedAt) < 15*time.Minute {
+				rateLimiter.mu.Unlock()
 				c.JSON(http.StatusTooManyRequests, gin.H{
-					"error": "登录尝试过多，账号已被临时锁定 15 分钟",
+					"error": "登录尝试过多，该 IP 已被临时锁定 15 分钟",
 				})
 				c.Abort()
 				return
@@ -81,6 +84,7 @@ func LoginRateLimit() gin.HandlerFunc {
 		if now.Sub(attempt.FirstTime) > 5*time.Minute {
 			attempt.Count = 1
 			attempt.FirstTime = now
+			rateLimiter.mu.Unlock()
 			c.Next()
 			return
 		}
@@ -91,13 +95,15 @@ func LoginRateLimit() gin.HandlerFunc {
 		// 超过 5 次，封禁
 		if attempt.Count > 5 {
 			attempt.BlockedAt = now
+			rateLimiter.mu.Unlock()
 			c.JSON(http.StatusTooManyRequests, gin.H{
-				"error": "登录尝试过多，账号已被临时锁定 15 分钟",
+				"error": "登录尝试过多，该 IP 已被临时锁定 15 分钟",
 			})
 			c.Abort()
 			return
 		}
 
+		rateLimiter.mu.Unlock()
 		c.Next()
 	}
 }

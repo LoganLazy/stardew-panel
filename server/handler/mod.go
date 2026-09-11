@@ -1,11 +1,14 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
+	"os"
 	"path/filepath"
 	"stardew-panel/config"
 	"stardew-panel/service"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -20,7 +23,10 @@ func InitModHandler(cfg *config.Config) {
 // ListMods 获取 MOD 列表
 func ListMods(c *gin.Context) {
 	// 先扫描文件系统同步MOD
-	modService.ScanMods()
+	if err := modService.ScanMods(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
 	mods, err := modService.ListMods()
 	if err != nil {
@@ -40,16 +46,31 @@ func UploadMod(c *gin.Context) {
 
 	file, err := c.FormFile("file")
 	if err != nil {
-		if err.Error() == "http: request body too large" {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "文件过大，最大支持 500MB"})
 			return
 		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": "文件上传失败"})
 		return
 	}
+	if !strings.EqualFold(filepath.Ext(file.Filename), ".zip") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "仅支持 .zip 格式的 MOD"})
+		return
+	}
 
-	// 保存临时文件
-	tempPath := "./data/temp/" + file.Filename
+	// 每次上传使用独立临时目录，避免同名文件覆盖和路径注入。
+	if err := os.MkdirAll("./data/temp", 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建临时目录失败"})
+		return
+	}
+	tempDir, err := os.MkdirTemp("./data/temp", "upload-*")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建临时目录失败"})
+		return
+	}
+	defer os.RemoveAll(tempDir)
+	tempPath := filepath.Join(tempDir, filepath.Base(file.Filename))
 	if err := c.SaveUploadedFile(file, tempPath); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存文件失败"})
 		return

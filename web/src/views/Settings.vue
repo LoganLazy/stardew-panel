@@ -3,6 +3,42 @@
     <h2>⚙️ 系统设置</h2>
 
     <div class="card">
+      <h3>🎮 游戏服务器设置</h3>
+      <p class="description">
+        这些设置作用于运行中的游戏服务器。修改后即时生效，部分设置可能需要过一天或重启后完全应用。
+      </p>
+
+      <div v-if="settingsUnavailable" class="settings-hint">
+        游戏服务器未运行或 API 暂不可用，启动服务器后可在此调整设置。
+      </div>
+
+      <form v-else @submit.prevent="handleSaveSettings" class="password-form">
+        <div class="form-group">
+          <label>最大玩家数（含房主，1-16）</label>
+          <input v-model.number="settings.maxPlayers" type="number" min="1" max="16" />
+        </div>
+
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input v-model="settings.autoStartNewDay" type="checkbox" />
+            自动开始新的一天
+          </label>
+          <small>无人在线时服务器自动过夜，保持农场推进。</small>
+        </div>
+
+        <div class="form-group">
+          <label>过夜等待秒数</label>
+          <input v-model.number="settings.newDayWaitSeconds" type="number" min="0" />
+          <small>自动过夜前的等待时间，给玩家收尾的机会。</small>
+        </div>
+
+        <button type="submit" class="btn btn-primary" :disabled="settingsLoading">
+          {{ settingsLoading ? '保存中...' : '保存设置' }}
+        </button>
+      </form>
+    </div>
+
+    <div class="card">
       <h3>🔐 修改密码</h3>
       <p class="description">定期修改密码可以提高账户安全性</p>
 
@@ -22,7 +58,7 @@
           <input
             v-model="newPassword"
             type="password"
-            placeholder="请输入新密码（至少6位）"
+            placeholder="请输入新密码（至少12位）"
             required
           />
         </div>
@@ -71,8 +107,62 @@ const newPassword = ref('')
 const confirmPassword = ref('')
 const loading = ref(false)
 
+// 游戏服务器设置（代理 sdvd /settings）
+const settings = ref({
+  maxPlayers: 4,
+  autoStartNewDay: true,
+  newDayWaitSeconds: 30,
+})
+const settingsLoading = ref(false)
+const settingsUnavailable = ref(false)
+// 记录初值，保存时只 PUT 改动过的项（sdvd 是逐 key 更新）
+let settingsSnapshot = {}
+
+const fetchSettings = async () => {
+  try {
+    const { data } = await api.getServerSettings()
+    if (!data?.available) {
+      settingsUnavailable.value = true
+      return
+    }
+
+    const serverSettings = data.settings || {}
+    // 只挑面板暴露的几项，其余忽略
+    if (serverSettings && typeof serverSettings === 'object') {
+      if (serverSettings.maxPlayers !== undefined) settings.value.maxPlayers = serverSettings.maxPlayers
+      if (serverSettings.autoStartNewDay !== undefined) settings.value.autoStartNewDay = serverSettings.autoStartNewDay
+      if (serverSettings.newDayWaitSeconds !== undefined) settings.value.newDayWaitSeconds = serverSettings.newDayWaitSeconds
+    }
+    settingsSnapshot = { ...settings.value }
+    settingsUnavailable.value = false
+  } catch (error) {
+    // 服务器没运行时拿不到设置，属正常
+    settingsUnavailable.value = true
+  }
+}
+
+const handleSaveSettings = async () => {
+  settingsLoading.value = true
+  try {
+    // 逐项对比，只提交改动过的（sdvd PUT /settings/{key}）
+    for (const key of Object.keys(settings.value)) {
+      if (settings.value[key] !== settingsSnapshot[key]) {
+        await api.updateServerSetting(key, settings.value[key])
+      }
+    }
+    settingsSnapshot = { ...settings.value }
+    alert('设置已保存')
+  } catch (error) {
+    console.error('Save settings failed:', error)
+    alert('保存设置失败：' + (error.response?.data?.error || error.message))
+  } finally {
+    settingsLoading.value = false
+  }
+}
+
 onMounted(() => {
   username.value = localStorage.getItem('username') || 'admin'
+  fetchSettings()
 })
 
 const handleChangePassword = async () => {
@@ -81,8 +171,8 @@ const handleChangePassword = async () => {
     return
   }
 
-  if (newPassword.value.length < 6) {
-    alert('新密码至少需要6个字符')
+  if (newPassword.value.length < 12) {
+    alert('新密码至少需要12个字符')
     return
   }
 
