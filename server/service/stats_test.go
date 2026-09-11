@@ -112,11 +112,12 @@ func TestComposeStatsReturnsNilWhenContainerStopped(t *testing.T) {
 
 func TestComposeStatsParsesRunningContainer(t *testing.T) {
 	installFakeDocker(t, `
-if [ "$1" = "compose" ] && [ "$2" = "ps" ]; then echo "abc123"; exit 0; fi
-if [ "$1" = "stats" ]; then
-  echo '{"BlockIO":"12.3MB / 0B","CPUPerc":"3.25%","Container":"abc123","ID":"abc123","MemPerc":"9.5%","MemUsage":"180MiB / 2GiB","Name":"docker-server-1","NetIO":"1.1MB / 656kB","PIDs":"42"}'
-  exit 0
-fi
+case " $* " in
+  *" ps -q --status running server "*) echo "abc123" ;;
+  *" stats --no-stream "*)
+    echo '{"BlockIO":"12.3MB / 0B","CPUPerc":"3.25%","Container":"abc123","ID":"abc123","MemPerc":"9.5%","MemUsage":"180MiB / 2GiB","Name":"docker-server-1","NetIO":"1.1MB / 656kB","PIDs":"42"}'
+    ;;
+esac
 exit 0`)
 
 	runner := NewComposeRunner("compose.yml", t.TempDir())
@@ -135,11 +136,13 @@ exit 0`)
 func TestStreamLogsFollowsAndStopsOnCancel(t *testing.T) {
 	// exec sleep 保证取消时被杀的就是持有 stdout 管道的进程本身
 	installFakeDocker(t, `
-if [ "$2" = "logs" ]; then
-  echo "docker-server-1  | line one"
-  echo "docker-server-1  | line two"
-  exec sleep 30
-fi
+case " $* " in
+  *" logs --follow "*)
+    echo "docker-server-1  | line one"
+    echo "docker-server-1  | line two"
+    exec sleep 30
+    ;;
+esac
 exit 0`)
 
 	runner := NewComposeRunner("compose.yml", t.TempDir())
